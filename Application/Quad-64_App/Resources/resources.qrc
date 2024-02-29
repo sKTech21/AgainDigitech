@@ -1,0 +1,41 @@
+<RCC>
+    <qresource prefix="/">
+        <file>Image/ProductLogo_1.png</file>
+        <file>Image/ProductLogo_2.png</file>
+        <file>Image/CompanyLogo_1.jpg</file>
+        <file>Image/CompanyLogo_2.jpg</file>
+        <file>Image/CompanyLogo_3.png</file>
+        <file>Image/FullStop.png</file>
+        <file>Image/ProductLogo_1.jpg</file>
+        <file>Image/MACAddress.png</file>
+        <file>Image/SerialNumber.png</file>
+        <file>Wallpaper/LoginSifeFrameBackground_9.jpeg</file>
+        <file>Image/leftArrow.png</file>
+        <file>Image/rightArrow.png</file>
+        <file>Wallpaper/Background_21.jpg</file>
+        <file>Wallpaper/Background_22.jpg</file>
+        <file>Wallpaper/Background_23.jpg</file>
+        <file>Wallpaper/LoginBackground_11.jpg</file>
+        <file>Wallpaper/LoginBackground_12.jpg</file>
+        <file>Wallpaper/LoginBackground_13.jpg</file>
+        <file>Wallpaper/LoginBackground_14.jpg</file>
+        <file>Wallpaper/LoginBackground_15.jpg</file>
+        <file>Wallpaper/LoginBackground_16.jpg</file>
+        <file>Wallpaper/LoginBackground_17.jpg</file>
+        <file>Image/Add_Green_32px.png</file>
+        <file>Image/Addition_32px.png</file>
+        <file>Image/Check_32px.png</file>
+        <file>Image/Delete_32px.png</file>
+        <file>Image/Error_32px.png</file>
+        <file>Image/LeftArrow_Black_32px.png</file>
+        <file>Image/LeftArrow_Black_64px.png</file>
+        <file>Image/LeftArrow_Black_128px.png</file>
+        <file>Image/RightArrow_Black_32px.png</file>
+        <file>Image/RightArrow_Black_64px.png</file>
+        <file>Image/RightArrow_Black_128px.png</file>
+        <file>Image/Clock_24px.png</file>
+        <file>Image/Clock_32px.png</file>
+        <file>Image/IPAdd_24px.png</file>
+        <file>Image/IPAdd_32px.png</file>
+    </qresource>
+</RCC>
