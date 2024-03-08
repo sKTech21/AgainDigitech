@@ -11,7 +11,7 @@
 #define UDP_IDLE_RX_TIMEOUT				( 5000 )
 #define UDP_RX_TIMEOUT_DURING_PROCESS	( 2000 )
 #define UDP_NO_OF_MESG_STORAGE			( 5 )
-#define UDP_TX_MAX_MESAAGE_SIZE			( 2048 )
+#define UDP_TX_MAX_MESAAGE_SIZE			( 4096 )
 
 #define BROADCAST_MESG					( 0 )
 #define P2P_MESG						( 1 )

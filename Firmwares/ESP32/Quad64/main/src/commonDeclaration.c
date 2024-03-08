@@ -396,7 +396,7 @@ void delayMicroseconds(uint32_t _delayInuS)
 */
 
 #if defined( SYNC_NATIVE_CLOCK )
-uint64_t clockOffset = 0;
+uint32_t clockOffset = 0;
 bool clockOffsettingDone = false;
 bool clockValueLocked = false;
 uint64_t lockedClockValue = 0;

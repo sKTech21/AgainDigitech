@@ -37,7 +37,7 @@
 #define CONTINUITY_DEBUG_ENABLED
 #define COMMON_DEBUG_ENABLED
 //#define UNIT_TESTING_ENABLED
-//#define WIFI_DEBUG_ENABLED
+#define WIFI_DEBUG_ENABLED
 #define JSN_PARSING_DEBUG_ENABLED
 
 #if defined( WIFI_DEBUG_ENABLED )
@@ -123,7 +123,7 @@ extern const char *JSN_DBG_TAG;
 #define NON_BLOCKING_TCP_CLIENT					( 1 )
 
 //Delete when not in use
-#define NODE_NUMBER								( 1 )
+#define NODE_NUMBER								( 15 )
 #define LOCK_CONN_STATE_1						( 1 )
 #define LOCK_CONN_STATE_2						( 1 )
 #define LOCK_CONN_STATE_3						( 1 )

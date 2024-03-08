@@ -11,7 +11,7 @@
 
 void app_main(void)
 {
-	//rtc_wdt_disable();
+	rtc_wdt_disable();
 
 	initGPIO( );
 	delayMicroseconds( 500 );
@@ -23,26 +23,21 @@ void app_main(void)
 	initNodeConfigParameters( );
 	initNVSFlashMemory( );
 
-	wifi_init_sta( ); //
-	createWifiMonitoringTask( );//
+	wifi_init_sta( );
+	createWifiMonitoringTask( );
 
-//	createUDPServerTask( );
-//	createTCPServerClientTask( );
-
-	continuityTestTaskInit( );//
-	leakTestTaskInit( );//
-
-	//createUDPServerTask( );
+	continuityTestTaskInit( );
+	leakTestTaskInit( );
 
 	setNodeNumber( NODE_NUMBER );
 #if defined( UNIT_TESTING_ENABLED )
 	setNodeNumber( 1 );
 	//prepareTestMessage( );
 #endif
-	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "Flashing Done Successfully with Node Number : %d", getNodeNumber() );
+	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "Node Number: %d", getNodeNumber() );
 	while( 1 )
 	{
-		vTaskDelay( 100 / portTICK_PERIOD_MS );
+		vTaskDelay( 10 / portTICK_PERIOD_MS );
 	}
 }
 

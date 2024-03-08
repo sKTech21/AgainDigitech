@@ -612,7 +612,7 @@ void createTCPServerClientTask( void )
 
 		xTaskCreatePinnedToCore( tcp_server_task_1,
 								 "tcp_rx_non_blocking_client",
-								 10000,
+								 4096,
 								 ( void* )AF_INET,
 								 1,
 								 &tcpRxNonBlockingTaskHandle,
@@ -622,7 +622,7 @@ void createTCPServerClientTask( void )
 #endif
 		xTaskCreatePinnedToCore( tcpTxMonitoringTask,
 								 "tcp_tx_monitoring",
-								 20000,
+								 4096,
 								 ( void* )AF_INET,
 								 2,
 								 &tcpTxMonitoringTaskHandle,
@@ -682,10 +682,15 @@ static void log_socket_error(const char *tag, const int sock, const int err, con
 		err == 113 )
 	{
 		TCP_DBG_LOG( TCP_DBG_TAG, "Deleting Socket**:%d", tcpSocketID );
-		close( tcpSocketID );
-		free( address_info );
-		deletetcpRxNonBlockingTask( );
+
+		if( tcpSocketID != 0 )
+			close( tcpSocketID );
+
+		if( address_info != NULL )
+			free( address_info );
+
 		tcpSocketID = 0;
+		deletetcpRxNonBlockingTask( );
 	}
 	TCPSocketDisconnectionError = err;
 }
@@ -855,13 +860,15 @@ static bool createTCPServerSocket( )
 static void tcp_server_task_1( void *pvParameters )
 {
 	static char rx_buffer[ 1024 ];
+	int len = 0;
+	/*
 	static const char *payload = "TCP RX Non BLocking";
 
 	int len = socket_send( TCP_DBG_TAG, tcpSocketID, payload, strlen( payload ) );
 	if( len < 0 )
 	{
 		TCP_DBG_ERR( TCP_DBG_TAG, "Error during dummy socket_send" );
-	}
+	}*/
 	//TCP_DBG_LOG( TCP_DBG_TAG, "Client Dummy Data sent...%d, %s, %d", len, payload, tcpSocketID );
 
 	do
@@ -885,13 +892,20 @@ static void tcp_server_task_1( void *pvParameters )
 			TCP_DBG_ERR( TCP_DBG_TAG, "Task Deleted, tcp_server_task_1" );
 			break;
 		}
-		vTaskDelay( 1 / portTICK_PERIOD_MS ); //2ms Sleep
+		vTaskDelay( 2 / portTICK_PERIOD_MS ); //2ms Sleep
 	}while( len >= 0 );
 
 	TCP_DBG_ERR( TCP_DBG_TAG, "TCP_Socket Error Found");
-	tcpSocketID = 0;
-	close( tcpSocketID );
-	free( address_info );
+	/*
+	// Close socket and free resources
+    if( tcpSocketID > 0 ) {
+        close( tcpSocketID );
+    }
+    if( address_info != NULL ) //This check added later but not checked or debugged
+    	free( address_info );
+	*/
+    tcpSocketID = 0;
+
 	vTaskDelete( NULL );
 }
 
@@ -1148,14 +1162,14 @@ static void tcpTxMonitoringTask( void *pvParameters )
 						int err = socket_send( TCP_DBG_TAG, tcpSocketID, TCPTxMesg, strlen( TCPTxMesg ) );
 						if (err < 0)
 						{
-							WIFI_DBG_ERR( WIFI_DBG_TAG, "Err In UDP Tx ERR: %d", errno);
+							WIFI_DBG_ERR( WIFI_DBG_TAG, "Err In TCP Tx ERR: %d", errno);
 							vTaskDelay( 5 / portTICK_PERIOD_MS );
 						}
 						else
 						{
 							break;
 						}
-						WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP Tx Retrying..." );
+						WIFI_DBG_LOG( WIFI_DBG_TAG, "TCP Tx Retrying..." );
 					}
 				}
 			}
@@ -1285,9 +1299,10 @@ static bool parseClockOffsetAdjustmentMesg( const cJSON *_jsnObj )
 			//			array_item->valueint );
 			if( cJSON_IsNumber( array_item ) )
 			{
-				setClockOffset( array_item->valueint );
+				COMMON_DEBUG_LOG( CLK_SYNK_DBG_TAG, "Offset: %d", array_item->valueint );
+				setClockOffset( array_item->valuedouble );
 				lockCurrentOffsettedClockValue( );
-				WIFI_DBG_LOG( WIFI_DBG_TAG, "CLK Offset Set" );
+				WIFI_DBG_LOG( WIFI_DBG_TAG, "CLK Offset Set : %s", cJSON_Print( _jsnObj )  );
 				return true;
 			}
 		}

@@ -346,10 +346,12 @@ static void processContinuityIOOperating( void )
 
 		case CONTINUITY_OPERATE_OUTPUT:
 		{
+#if defined( CHECK_FOR_EXACT_CLOCK_INSTANT )
 			//Operate Output Once we reach at the clock instant
 			if( ( CURRENT_CLOCK_INSTANT_WITH_OFFSET == scanInstant.operateIOClkInstant ) ||
 			    ( scanInstant.operateIOClkInstant - CURRENT_CLOCK_INSTANT_WITH_OFFSET == 1 ) )
 			{
+#endif
 				if( operateOutputStatus.currentOutput == 0 )
 					registerTxMessage( START_OPERATING_OUTPUT_MESG, 1, P2P_MESG, TCP_MESSAGE );
 
@@ -382,21 +384,25 @@ static void processContinuityIOOperating( void )
 				uint32_t clockDiff = scanInstant.scanIOClkInstant - CURRENT_CLOCK_INSTANT_WITH_OFFSET;
 				startContinuityTimer( xTaskGetTickCount(), clockDiff );
 				setContinuityProcessState( CONTINUITY_IO_SCANNING );
+#if defined( CHECK_FOR_EXACT_CLOCK_INSTANT )
 			}
 			else //if( scanInstant.operateIOClkInstant > CURRENT_CLOCK_INSTANT_WITH_OFFSET )
 			{
 				CONTINUITY_DBG_ERR( CONTINUITY_DBG_TAG, "OP Operating Instant missed by %lld,%lld",
 										CURRENT_CLOCK_INSTANT_WITH_OFFSET, scanInstant.operateIOClkInstant );
 			}
+#endif
 		}
 		break; //case CONTINUITY_OPERATE_OUTPUT:
 
 		case CONTINUITY_IO_SCANNING:
 		{
+#if defined( CHECK_FOR_EXACT_CLOCK_INSTANT )
 			//Scan All Required IO once we reach at the clock instant
 			if( ( CURRENT_CLOCK_INSTANT_WITH_OFFSET == scanInstant.scanIOClkInstant ) ||
 				( scanInstant.scanIOClkInstant - CURRENT_CLOCK_INSTANT_WITH_OFFSET == 1 ) )
 			{
+#endif
 				uint8_t arrayIndex = getScannedValueArrayIndex( scanProcessStatus.scanningForNode );
 				uint64_t totalScanTime = 0;
 
@@ -443,7 +449,7 @@ static void processContinuityIOOperating( void )
 						scanInstant.scanIOClkInstant = 0;
 						setContinuityProcessState( CONTINUITY_MOVE_TO_NEXT_NODE );
 						stopContinuityTimer( );
-						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "MOVE_TO_NEXT_NODE : 2" );
+						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "MOVE_TO_NEXT_NODE: 2" );
 						return;
 					}
 					else
@@ -463,7 +469,7 @@ static void processContinuityIOOperating( void )
 						scanInstant.scanIOClkInstant = 0;
 						setContinuityProcessState( CONTINUITY_MOVE_TO_NEXT_NODE );
 						stopContinuityTimer( );
-						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "MOVE_TO_NEXT_NODE : 1" );
+						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "MOVE_TO_NEXT_NODE: 1" );
 						return;
 					}
 				}
@@ -471,12 +477,14 @@ static void processContinuityIOOperating( void )
 				//Perform next scan operation
 				uint64_t clockDiff = scanInstant.scanIOClkInstant - CURRENT_CLOCK_INSTANT_WITH_OFFSET;
 				startContinuityTimer( xTaskGetTickCount(), clockDiff );
+#if defined( CHECK_FOR_EXACT_CLOCK_INSTANT )
 			}
 			else //if( scanInstant.operateIOClkInstant > CURRENT_CLOCK_INSTANT_WITH_OFFSET )
 			{
 				CONTINUITY_DBG_ERR( CONTINUITY_DBG_TAG, "Scan Instant missed by %lld,%lld",
 										CURRENT_CLOCK_INSTANT_WITH_OFFSET, scanInstant.operateIOClkInstant );
 			}
+#endif
 		}
 		break; //case CONTINUITY_IO_SCANNING:
 
@@ -494,7 +502,7 @@ static void processContinuityIOOperating( void )
 				resetSelfDetectionForSimilarPins( );
 				resetReportingStatusForAllScanVal( );
 				setContinuityProcessState( CONTINUITY_MESG_TO_APP_MONITORING );
-				CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "MESG_TO_APP_MONITORING : 1" );
+				CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "MESG_TO_APP_MONITORING: 1" );
 			}
 			else
 			{
@@ -507,12 +515,12 @@ static void processContinuityIOOperating( void )
 				if( scanProcessStatus.scanningForNode == getNodeNumber() )
 				{
 					setContinuityProcessState( CONTINITY_OPERATE_OUTPUT_INIT );
-					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "OPERATE_OUTPUT_INIT : 1" );
+					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "OPERATE_OUTPUT_INIT: 1" );
 				}
 				else
 				{
 					setContinuityProcessState( CONTINUITY_IO_SCANNING_INIT );
-					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "IO_SCANNING_INIT : 1" );
+					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "IO_SCANNING_INIT: 1" );
 				}
 			}
 		}
@@ -536,23 +544,23 @@ static void processContinuityIOOperating( void )
 				if( scanValReportingSts.zeroDetectionNodeCount != 0 &&
 					scanValReportingSts.zeroDetectionValueSent == SCANNED_VALUE_NOT_REPORTED_TO_APP )
 				{
-					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "ZERO_DCTN_MESG Registered" );
-					startContinuityTimer( xTaskGetTickCount(), 5 );
-					registerTxMessage( CONTINUITY_SCANNED_ZERO_DETECTION_MESG, 1, P2P_MESG, TCP_MESSAGE );
+					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "ZERO_DCTN_MESG Reg.." );
+					startContinuityTimer( xTaskGetTickCount(), 20 );
+					registerTxMessage( CONTINUITY_SCANNED_ZERO_DETECTION_MESG, 5, P2P_MESG, TCP_MESSAGE );
 				}
 				else if( scanValReportingSts.nonZeroDetectionNodeCount != 0 )
 				{
 					if( getNoOfScannedValueNotReportedToApp() > 0 )
 					{
-						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "NON_ZERO_DCTN_MESG Registered : %d, %d",
+						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "NON_ZERO_DCTN_MESG Reg..: %d, %d",
 								scanValReportingSts.nonZeroDetectionNodeCount, getNoOfScannedValueNotReportedToApp( ) );
 
 						//Wait for the previous message to be registered to application
 						if( !checkIfAnySimilarMesgRegistered( CONTINUITY_SCANNED_NON_ZERO_DETECTION_MESG ) )
 						{
-							registerTxMessage( CONTINUITY_SCANNED_NON_ZERO_DETECTION_MESG, 100, P2P_MESG, TCP_MESSAGE );
+							registerTxMessage( CONTINUITY_SCANNED_NON_ZERO_DETECTION_MESG, 20, P2P_MESG, TCP_MESSAGE );
 							//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "Scan Val Registered" );
-							startContinuityTimer( xTaskGetTickCount(), 5 );
+							startContinuityTimer( xTaskGetTickCount(), 20 );
 						}
 					}
 				}
@@ -604,7 +612,7 @@ static void resetReportingStatusForAllScanVal( void )
 			scanValueStatus[ ite ].noOfTimesScanValSentToAPp = 0;
 	}
 
-	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "Reset Scanned Value" );
+	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "Reset Reporting Sts" );
 	//scanValReportingSts.applrequestedForScannedVal = 0;
 	scanValReportingSts.currentlySending = 0;
 	scanValReportingSts.reSentRequired = 0;
@@ -994,7 +1002,7 @@ void prepareZeroDetectionMessage( char* _mesg )
 	//If any single connection detected, register the same message again after 5 ms difference.
 	if( noNoNodesHaveZeroDetection != continuityProdConfiguration.noOfNodesToBeScanned )
 	{
-		registerTxMessage( CONTINUITY_SCANNED_NON_ZERO_DETECTION_MESG, 5, P2P_MESG, TCP_MESSAGE );
+		registerTxMessage( CONTINUITY_SCANNED_NON_ZERO_DETECTION_MESG, 20, P2P_MESG, TCP_MESSAGE );
 		CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "NON_ZERO_DETECTION_MESG Registered" );
 	}
 }
@@ -1074,6 +1082,9 @@ static void prepareScannedValueMessage( char _mesg[ ], uint8_t _index )
 	cJSON *rootJSNObj = cJSON_CreateObject();
 	cJSON *jsonArr = cJSON_CreateArray();
 
+	if( rootJSNObj == NULL || jsonArr == NULL )
+		return;
+
 	cJSON_AddNumberToObject( rootJSNObj, JSN_MESSAGE_CODE_STR, SHARE_SCANNED_INPUT_VALUES_CMD );
 	cJSON_AddNumberToObject( rootJSNObj, JSN_NODE_NUMBER_STR,  getNodeNumber() );
 	cJSON_AddNumberToObject( rootJSNObj, JSN_SCANNED_FOR_NO_OF_OUTPUTS_STR, scanValueStatus[ _index ].totalOutputsScanned );
@@ -1108,178 +1119,179 @@ static void prepareScannedValueMessage( char _mesg[ ], uint8_t _index )
 	cJSON_AddNumberToObject( rootJSNObj, JSN_SCANNED_VALUE_BITSETTER_STR, scanValueStatus[ _index ].scannedValueBitSetter );
 
 	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "TTOSC:%d,NOTSTP:%d", scanValueStatus[ _index ].totalOutputsScanned,
-			scanValueStatus[ _index ].noOfTimesScanValSentToAPp );
-//	if( selfNodeNumber != scannedForNode )
-//	{
-		if( scanValueStatus[ _index ].noOfTimesScanValSentToAPp == 0 )
-		{
-			for( inputNum = 0; inputNum < scanValueStatus[ _index ].totalOutputsScanned; inputNum++ )
-			{
-				w0To31ScannedValues = scanValueStatus[ _index ].scannedValues[ inputNum ].value_1;
-				w32To63ScannedValue = scanValueStatus[ _index ].scannedValues[ inputNum ].value_2;
-//				CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "IP:%d, V1:%ld, V2:%ld",
-//				                      inputNum, w0To31ScannedValues, w32To63ScannedValue );
-
-				// Total Read Operation = No of WIO of the node doing IO Operation
-				if( inputNum < 32 ) //scannedIPStatus->readOperations <= 32
-				{
-					/* If Total Read Operation <= 32 && Total IO <= 32
-					 *    Refer just w0To31ScannedStatus_1
-					 * If Total Read Operation <= 32 && Total IO > 32
-					 *    Refer w0To31ScannedStatus_1 And w0To31ScannedStatus_2
-					*/
-					if( IOAssoWithSelfNode <= 32 )
-					{
-						w0To31ScannedValues &= scanValueStatus[ _index ].scannedValueBitSetter;
-						scanValueStatus[ _index ].scannedValues[ inputNum ].value_1 = w0To31ScannedValues;
-
-						//0 = No Any Input Detected
-						if( w0To31ScannedValues != 0 )
-							scanValueStatus[ _index ].w0To31ScannedStatus_1 |= ( 1 << inputNum );
-
-//						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w0-31V: %ld, w0-31S_1: %ld",
-//											  w0To31ScannedValues, scanValueStatus[ _index ].w0To31ScannedStatus_1 );
-					}
-					else
-					{
-						w32To63ScannedValue &= scanValueStatus[ _index ].scannedValueBitSetter;
-						scanValueStatus[ _index ].scannedValues[ inputNum ].value_2 = w32To63ScannedValue;
-
-						//0 = No Any Input Detected
-						if( w0To31ScannedValues != 0 )
-							scanValueStatus[ _index ].w0To31ScannedStatus_1 |= ( 1 << inputNum );
-						if( w32To63ScannedValue != 0 )
-							scanValueStatus[ _index ].w32To63ScannedStatus_1 |= ( 1 << inputNum );
-
-						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w0-31V: %ld, w0To31S_1: %ld",
-											  w0To31ScannedValues, scanValueStatus[ _index ].w0To31ScannedStatus_1 );
-						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w32-63V: %ld, w32-63S_1: %ld",
-											  w32To63ScannedValue, scanValueStatus[ _index ].w32To63ScannedStatus_1 );
-					}
-				}
-				else
-				{
-					/* If Total Read Operation > 32 && Total IO <= 32
-					 *    Refer w0To31ScannedStatus_1 And w32To63ScannedStatus_1
-					 * If Total Read Operation > 32 && Total IO > 32
-					 *    Refer just w0To31ScannedStatus_1 And w32To63ScannedStatus_1
-					 *    Also Refer w0To31ScannedStatus_2 And w32To63ScannedStatus_2
-					*/
-					if( IOAssoWithSelfNode <= 32 )
-					{
-						w0To31ScannedValues &= scanValueStatus[ _index ].scannedValueBitSetter;
-						scanValueStatus[ _index ].scannedValues[ inputNum ].value_1 = w0To31ScannedValues;
-
-						//0 = No Any Input Detected
-						if( w0To31ScannedValues != 0 )
-							scanValueStatus[ _index ].w32To63ScannedStatus_1 |= ( 1 << ( inputNum - 32 ) );
-
-						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w0-31Val: %ld, w0-31S_1: %ld",
-											  w0To31ScannedValues, scanValueStatus[ _index ].w0To31ScannedStatus_1 );
-					}
-					else
-					{
-						w32To63ScannedValue &= scanValueStatus[ _index ].scannedValueBitSetter;
-						scanValueStatus[ _index ].scannedValues[ inputNum ].value_2 = w32To63ScannedValue;
-
-						//0 = No Any Input Detected
-						if( w0To31ScannedValues != 0 )
-							scanValueStatus[ _index ].w0To31ScannedStatus_2 |= ( 1 << ( inputNum - 32 ) );
-						if( w32To63ScannedValue != 0 )
-							scanValueStatus[ _index ].w32To63ScannedStatus_2 |= ( 1 << ( inputNum - 32 ) );
-
-						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w0-31V: %ld, w0To31S_2: %ld",
-											  w0To31ScannedValues, scanValueStatus[ _index ].w0To31ScannedStatus_2 );
-						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w32-63V: %ld, w32To63S_2: %ld",
-											  w32To63ScannedValue, scanValueStatus[ _index ].w32To63ScannedStatus_2 );
-					}
-				}
-			}
-		}
-
-		// First Add Status of the Scanned Values
-		cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( scanValueStatus[ _index ].w0To31ScannedStatus_1 ) );
-		cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( scanValueStatus[ _index ].w0To31ScannedStatus_2 ) );
-		cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( scanValueStatus[ _index ].w32To63ScannedStatus_1 ) );
-		cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( scanValueStatus[ _index ].w32To63ScannedStatus_2 ) );
-
+																  scanValueStatus[ _index ].noOfTimesScanValSentToAPp );
+	if( scanValueStatus[ _index ].noOfTimesScanValSentToAPp == 0 )
+	{
 		for( inputNum = 0; inputNum < scanValueStatus[ _index ].totalOutputsScanned; inputNum++ )
 		{
 			w0To31ScannedValues = scanValueStatus[ _index ].scannedValues[ inputNum ].value_1;
 			w32To63ScannedValue = scanValueStatus[ _index ].scannedValues[ inputNum ].value_2;
+//				CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "IP:%d, V1:%ld, V2:%ld",
+//				                      inputNum, w0To31ScannedValues, w32To63ScannedValue );
 
-			if( inputNum < 32 )
+			// Total Read Operation = No of WIO of the node doing IO Operation
+			if( inputNum < 32 ) //scannedIPStatus->readOperations <= 32
 			{
+				/* If Total Read Operation <= 32 && Total IO <= 32
+				 *    Refer just w0To31ScannedStatus_1
+				 * If Total Read Operation <= 32 && Total IO > 32
+				 *    Refer w0To31ScannedStatus_1 And w0To31ScannedStatus_2
+				*/
 				if( IOAssoWithSelfNode <= 32 )
 				{
+					w0To31ScannedValues &= scanValueStatus[ _index ].scannedValueBitSetter;
+					scanValueStatus[ _index ].scannedValues[ inputNum ].value_1 = w0To31ScannedValues;
+
 					//0 = No Any Input Detected
-					if( ( scanValueStatus[ _index ].w0To31ScannedStatus_1 & ( 1 << inputNum ) ) &&
-						  w0To31ScannedValues != 0 )
-					{
-						cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w0To31ScannedValues) );
-						totalAddedArrayIndex++;
-						//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A1 : %d", inputNum );
-					}
+					if( w0To31ScannedValues != 0 )
+						scanValueStatus[ _index ].w0To31ScannedStatus_1 |= ( 1 << inputNum );
+
+//						CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w0-31V: %ld, w0-31S_1: %ld",
+//											  w0To31ScannedValues, scanValueStatus[ _index ].w0To31ScannedStatus_1 );
 				}
 				else
 				{
-					//0 = No Any Input Detected
-					if( ( scanValueStatus[ _index ].w0To31ScannedStatus_1 & ( 1 << inputNum ) ) &&
-						( w0To31ScannedValues != 0 ) )
-					{
-						cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w0To31ScannedValues ) );
-						totalAddedArrayIndex++;
-						//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A2 : %d", inputNum );
-					}
+					w32To63ScannedValue &= scanValueStatus[ _index ].scannedValueBitSetter;
+					scanValueStatus[ _index ].scannedValues[ inputNum ].value_2 = w32To63ScannedValue;
 
 					//0 = No Any Input Detected
-					if( ( scanValueStatus[ _index ].w32To63ScannedStatus_1 & ( 1 << inputNum ) ) &&
-						( w32To63ScannedValue != 0 ) )
-					{
-						cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w32To63ScannedValue ) );
-						totalAddedArrayIndex++;
-						//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A3 : %d", inputNum );
-					}
+					if( w0To31ScannedValues != 0 )
+						scanValueStatus[ _index ].w0To31ScannedStatus_1 |= ( 1 << inputNum );
+					if( w32To63ScannedValue != 0 )
+						scanValueStatus[ _index ].w32To63ScannedStatus_1 |= ( 1 << inputNum );
+
+					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w0-31V: %ld, w0To31S_1: %ld",
+										  w0To31ScannedValues, scanValueStatus[ _index ].w0To31ScannedStatus_1 );
+					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w32-63V: %ld, w32-63S_1: %ld",
+										  w32To63ScannedValue, scanValueStatus[ _index ].w32To63ScannedStatus_1 );
 				}
 			}
 			else
 			{
+				/* If Total Read Operation > 32 && Total IO <= 32
+				 *    Refer w0To31ScannedStatus_1 And w32To63ScannedStatus_1
+				 * If Total Read Operation > 32 && Total IO > 32
+				 *    Refer just w0To31ScannedStatus_1 And w32To63ScannedStatus_1
+				 *    Also Refer w0To31ScannedStatus_2 And w32To63ScannedStatus_2
+				*/
 				if( IOAssoWithSelfNode <= 32 )
 				{
+					w0To31ScannedValues &= scanValueStatus[ _index ].scannedValueBitSetter;
+					scanValueStatus[ _index ].scannedValues[ inputNum ].value_1 = w0To31ScannedValues;
+
 					//0 = No Any Input Detected
-					if( ( scanValueStatus[ _index ].w32To63ScannedStatus_1 & ( 1 << ( inputNum - 32 ) ) ) &&
-						( w0To31ScannedValues != 0 ) )
-					{
-						cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w0To31ScannedValues ) );
-						totalAddedArrayIndex++;
-						//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A4 : %d", inputNum );
-					}
+					if( w0To31ScannedValues != 0 )
+						scanValueStatus[ _index ].w32To63ScannedStatus_1 |= ( 1 << ( inputNum - 32 ) );
+
+					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w0-31Val: %ld, w0-31S_1: %ld",
+										  w0To31ScannedValues, scanValueStatus[ _index ].w0To31ScannedStatus_1 );
 				}
 				else
 				{
-					//0 = No Any Input Detected
-					if( ( scanValueStatus[ _index ].w0To31ScannedStatus_2 & ( 1 << ( inputNum -32 ) ) ) &&
-						( w0To31ScannedValues != 0 ) )
-					{
-						cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w0To31ScannedValues ) );
-						totalAddedArrayIndex++;
-						//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A5 : %d", inputNum );
-					}
+					w32To63ScannedValue &= scanValueStatus[ _index ].scannedValueBitSetter;
+					scanValueStatus[ _index ].scannedValues[ inputNum ].value_2 = w32To63ScannedValue;
 
 					//0 = No Any Input Detected
-					if( ( scanValueStatus[ _index ].w32To63ScannedStatus_2 & ( 1 << ( inputNum - 32 ) ) ) &&
-						( w32To63ScannedValue != 0 ) )
-					{
-						cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w32To63ScannedValue ) );
-						totalAddedArrayIndex++;
-						//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A6 : %d", inputNum );
-					}
+					if( w0To31ScannedValues != 0 )
+						scanValueStatus[ _index ].w0To31ScannedStatus_2 |= ( 1 << ( inputNum - 32 ) );
+					if( w32To63ScannedValue != 0 )
+						scanValueStatus[ _index ].w32To63ScannedStatus_2 |= ( 1 << ( inputNum - 32 ) );
+
+					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w0-31V: %ld, w0To31S_2: %ld",
+										  w0To31ScannedValues, scanValueStatus[ _index ].w0To31ScannedStatus_2 );
+					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "w32-63V: %ld, w32To63S_2: %ld",
+										  w32To63ScannedValue, scanValueStatus[ _index ].w32To63ScannedStatus_2 );
 				}
 			}
 		}
-//	}
+	}
+
+	// First Add Status of the Scanned Values
+	cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( scanValueStatus[ _index ].w0To31ScannedStatus_1 ) );
+	cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( scanValueStatus[ _index ].w0To31ScannedStatus_2 ) );
+	cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( scanValueStatus[ _index ].w32To63ScannedStatus_1 ) );
+	cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( scanValueStatus[ _index ].w32To63ScannedStatus_2 ) );
+
+	for( inputNum = 0; inputNum < scanValueStatus[ _index ].totalOutputsScanned; inputNum++ )
+	{
+		w0To31ScannedValues = scanValueStatus[ _index ].scannedValues[ inputNum ].value_1;
+		w32To63ScannedValue = scanValueStatus[ _index ].scannedValues[ inputNum ].value_2;
+
+		if( inputNum < 32 )
+		{
+			if( IOAssoWithSelfNode <= 32 )
+			{
+				//0 = No Any Input Detected
+				if( ( scanValueStatus[ _index ].w0To31ScannedStatus_1 & ( 1 << inputNum ) ) &&
+					  w0To31ScannedValues != 0 )
+				{
+					cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w0To31ScannedValues) );
+					totalAddedArrayIndex++;
+					//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A1 : %d", inputNum );
+				}
+			}
+			else
+			{
+				//0 = No Any Input Detected
+				if( ( scanValueStatus[ _index ].w0To31ScannedStatus_1 & ( 1 << inputNum ) ) &&
+					( w0To31ScannedValues != 0 ) )
+				{
+					cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w0To31ScannedValues ) );
+					totalAddedArrayIndex++;
+					//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A2 : %d", inputNum );
+				}
+
+				//0 = No Any Input Detected
+				if( ( scanValueStatus[ _index ].w32To63ScannedStatus_1 & ( 1 << inputNum ) ) &&
+					( w32To63ScannedValue != 0 ) )
+				{
+					cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w32To63ScannedValue ) );
+					totalAddedArrayIndex++;
+					//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A3 : %d", inputNum );
+				}
+			}
+		}
+		else
+		{
+			if( IOAssoWithSelfNode <= 32 )
+			{
+				//0 = No Any Input Detected
+				if( ( scanValueStatus[ _index ].w32To63ScannedStatus_1 & ( 1 << ( inputNum - 32 ) ) ) &&
+					( w0To31ScannedValues != 0 ) )
+				{
+					cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w0To31ScannedValues ) );
+					totalAddedArrayIndex++;
+					//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A4 : %d", inputNum );
+				}
+			}
+			else
+			{
+				//0 = No Any Input Detected
+				if( ( scanValueStatus[ _index ].w0To31ScannedStatus_2 & ( 1 << ( inputNum -32 ) ) ) &&
+					( w0To31ScannedValues != 0 ) )
+				{
+					cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w0To31ScannedValues ) );
+					totalAddedArrayIndex++;
+					//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A5 : %d", inputNum );
+				}
+
+				//0 = No Any Input Detected
+				if( ( scanValueStatus[ _index ].w32To63ScannedStatus_2 & ( 1 << ( inputNum - 32 ) ) ) &&
+					( w32To63ScannedValue != 0 ) )
+				{
+					cJSON_AddItemToArray( jsonArr, cJSON_CreateNumber( w32To63ScannedValue ) );
+					totalAddedArrayIndex++;
+					//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "A6 : %d", inputNum );
+				}
+			}
+		}
+	}
 	cJSON_AddItemToObject( rootJSNObj, JSN_SCANNED_VALUE_STR, jsonArr );
 
+	if( strlen( cJSON_Print( rootJSNObj ) ) >= UDP_TX_MAX_MESAAGE_SIZE || _mesg[0] != '\0' )
+		CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "**ML:%d\n", strlen( cJSON_Print( rootJSNObj ) ) );
+
+	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "***ML:%d,%s\n", strlen( cJSON_Print( rootJSNObj ) ), cJSON_Print( rootJSNObj ) );
 	memcpy( _mesg, cJSON_Print( rootJSNObj ), strlen( cJSON_Print( rootJSNObj ) ) );
 
 	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "ML:%d, AI:%d\n", strlen( _mesg ), totalAddedArrayIndex );
@@ -1394,12 +1406,6 @@ void scanDummyInputs( void )
 				CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "PIN Detected OP:%d, IP:%d, %d", ite, input, bitValue );
 		}
 	}
-
-	//setDataPinsDirection( GPIO_MODE_OUTPUT );
-	//delayMicroseconds( 500 );
-	//enableGroup2IC( );
-	//delayMicroseconds( 500 );
-	//scanDummyInputs( );
 }
 
 //Todo
