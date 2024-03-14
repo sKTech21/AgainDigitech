@@ -72,6 +72,7 @@
  *************************************************************************/
 /*Key Used in JSON Messages*/
 const char* JSN_MESSAGE_CODE_STR					=	"mC";
+const char* JSN_FREE_HEAP_MEMORY					=	"fHM";
 const char* JSN_SENT_MESSAGE_AFTER_INTERVAL_STR		= 	"iNTVL";
 const char* JSN_SHARE_BASIC_INFO_STR				=	"bIN";
 const char* JSN_NODE_NUMBER_STR						=	"nN";
@@ -133,7 +134,7 @@ static int udpSocketID = 0;
 struct sockaddr_in dest_addrForUDPTx;
 static char UDPTxMesg[ UDP_TX_MAX_MESAAGE_SIZE ];
 static char TCPTxMesg[ UDP_TX_MAX_MESAAGE_SIZE ];
-static UDPTxStatus_t UDPTxStatus[ MAX_MESG_TO_APP ];
+static UDPTxStatus_t txMesgStatus[ MAX_MESG_TO_APP ];
 
 static int tcpSocketID = 0;
 struct addrinfo hints = { .ai_socktype = SOCK_STREAM };
@@ -143,35 +144,25 @@ static uint8_t TCPSocketDisconnectionError = 0;
 
 static TaskHandle_t wifiMonitoringTaskHandle = NULL;
 static TaskHandle_t wifiUDPServerTaskhandle = NULL;
-static TaskHandle_t wifiUDPTxTaskHandle = NULL;
 
 static TaskHandle_t tcpRxNonBlockingTaskHandle = NULL;
-static TaskHandle_t tcpTxMonitoringTaskHandle = NULL;
-
+static TaskHandle_t txMonitoringTaskHandle = NULL;
 /**************************************************************************
  * Static Function Declaration
  *************************************************************************/
 static void udp_server_task( void *pvParameters );
-
-#if defined( NON_BLOCKING_TCP_CLIENT )
-//static void tcp_server_task( void *pvParameters );
 static void tcp_server_task_1( void *pvParameters );
-#else
-static void tcp_client_task( void *pvParameters );
-#endif
 
 static void wifiTaskMonitoring( void );
-static void tcpTxMonitoringTask( void *pvParameters );
-static void udpTxMonitoringTask(void *pvParameters);
+static void tcpAndudpTxMonitoringTask( void *pvParameters );
+static void sendMessageIfRegistered( void );
+
 static void initUDPTxMessagesStatus( void );
-static void UDPTxMonitoring( void );
 static void parseReceivedMessage( const char* const _mesg, uint16_t _mesgLength, uint8_t _tcpOrUDP );
 static bool JSN_getUIntegerValueForTheKey( const cJSON *_rootJsnObj, const char* _key, uint32_t *_value );
 static void prepareLiveStatusMessage( char *_mesg );
 static void prepareExpectedProcessStartTimeResp( char* _mesg );
 static void startTCPSocketMonitoringTimer( TickType_t _lastWakeTime, uint32_t _timerPerioTickCount );
-static void deletetcpRxNonBlockingTask( );
-static void deletetcpTxNonBlockingTask( );
 static bool createTCPServerSocket( );
 
 static void prepareSyncCommandResponse( char* _mesg );
@@ -192,7 +183,7 @@ void createWifiMonitoringTask( void )
 	{
 		startTCPSocketMonitoringTimer( xTaskGetTickCount(), 100 );
 		xTaskCreatePinnedToCore( wifiTaskMonitoring, "wifi_monitoring", 4096, ( void* )AF_INET, 2, &wifiMonitoringTaskHandle, 0 );
-		WIFI_DBG_LOG( WIFI_DBG_TAG, "[ wifiTaskMonitoring Task Created ]" );
+		WIFI_DBG_LOG( WIFI_DBG_TAG, "[** createWifiMonitoringTask Task Created **]" );
 	}
 }
 
@@ -222,11 +213,13 @@ static void wifiTaskMonitoring( void )
 			 */
 			if( tcpSocketID == 0 )
 			{
+				TCP_DBG_LOG( TCP_DBG_TAG, "NULL tcpSocketID Found" );
 				if( createTCPServerSocket( ) == true )
 				{
-					if( tcpSocketID !=0 && tcpRxNonBlockingTaskHandle == NULL && tcpTxMonitoringTaskHandle == NULL )
+					if( tcpSocketID !=0 )
 					{
-						TCP_DBG_LOG( TCP_DBG_TAG, "Socket Created and connected Successfully");
+						TCP_DBG_LOG( TCP_DBG_TAG, "Socket connected Successfully" );
+						tcpRxNonBlockingTaskHandle = NULL;
 						createTCPServerClientTask();
 					}
 				}
@@ -241,11 +234,6 @@ static void wifiTaskMonitoring( void )
 			if( tcpSocketID != 0 )
 			{
 				WIFI_DBG_LOG( WIFI_DBG_TAG, "tcpSocketID Not NULL, Hence Deleting Task" );
-				if( tcpRxNonBlockingTaskHandle != NULL || tcpTxMonitoringTaskHandle != NULL )
-				{
-					deletetcpRxNonBlockingTask( );
-					deletetcpTxNonBlockingTask( );
-				}
 				TCPPSocketReconnected = true;
 				tcpSocketID = 0;
 			}
@@ -259,9 +247,8 @@ void createUDPServerTask( void )
 	initUDPTxMessagesStatus( );
 	if( wifiUDPServerTaskhandle == NULL )
 	{
-		xTaskCreatePinnedToCore( udp_server_task, "udp_server", 4096, ( void* )AF_INET, 5, &wifiUDPServerTaskhandle, 0 );
-		xTaskCreatePinnedToCore( udpTxMonitoringTask, "udp_server", 4096, ( void* )AF_INET, 6, &wifiUDPTxTaskHandle, 0 );
-		WIFI_DBG_LOG( WIFI_DBG_TAG, "udp_server_task TASK Created" );
+		xTaskCreatePinnedToCore( udp_server_task, "udp_server", 8192, ( void* )AF_INET, 5, &wifiUDPServerTaskhandle, 0 );
+		xTaskCreatePinnedToCore( tcpAndudpTxMonitoringTask, "tx_monitoring", 4096, ( void* )AF_INET, 2, &txMonitoringTaskHandle, 0 );
 	}
 }
 
@@ -269,26 +256,26 @@ static void initUDPTxMessagesStatus( void )
 {
 	uint8_t ite = 0;
 
-	memset( &UDPTxStatus, '\0', sizeof( UDPTxStatus_t ) );
-	for( ite = LIVE_STATUS_EXCHANE_MESG; ite <= START_SCAN_COMMAND_MESG; ite++ )
+	memset( &txMesgStatus, '\0', sizeof( UDPTxStatus_t ) );
+	for( ite = LIVE_STATUS_EXCHANE_MESG; ite < MAX_MESG_TO_APP; ite++ )
 	{
-		UDPTxStatus[ ite ].mesgToBeSent = 0;
-		UDPTxStatus[ ite ].sentAfterMs = 0;
-		UDPTxStatus[ ite ].mesgFormationFncPtr = NULL;
+		txMesgStatus[ ite ].mesgToBeSent = 0;
+		txMesgStatus[ ite ].sentAfterMs = 0;
+		txMesgStatus[ ite ].mesgFormationFncPtr = NULL;
 	}
 	//Assign Function Pointer to actual function
-	UDPTxStatus[ LIVE_STATUS_EXCHANE_MESG ].mesgFormationFncPtr = &prepareLiveStatusMessage;
-	UDPTxStatus[ EXPECTED_PROCESS_START_TIME_MESG ].mesgFormationFncPtr = &prepareExpectedProcessStartTimeResp;
+	txMesgStatus[ LIVE_STATUS_EXCHANE_MESG ].mesgFormationFncPtr = &prepareLiveStatusMessage;
+	txMesgStatus[ EXPECTED_PROCESS_START_TIME_MESG ].mesgFormationFncPtr = &prepareExpectedProcessStartTimeResp;
 
-	UDPTxStatus[ START_OPERATING_OUTPUT_MESG ].mesgFormationFncPtr = &prepareOperateOutputStartEventMesg;
-	UDPTxStatus[ OUTPUT_OPERATING_DONE_MESG ].mesgFormationFncPtr = &prepareOperateOutputDoneEventMesg;
+	txMesgStatus[ START_OPERATING_OUTPUT_MESG ].mesgFormationFncPtr = &prepareOperateOutputStartEventMesg;
+	txMesgStatus[ OUTPUT_OPERATING_DONE_MESG ].mesgFormationFncPtr = &prepareOperateOutputDoneEventMesg;
 
-	UDPTxStatus[ CONTINUITY_SCANNED_ZERO_DETECTION_MESG ].mesgFormationFncPtr = &prepareZeroDetectionMessage;
-	UDPTxStatus[ CONTINUITY_SCANNED_NON_ZERO_DETECTION_MESG ].mesgFormationFncPtr = &prepareScannedValueMesgForNextPossibleNode;
+	txMesgStatus[ CONTINUITY_SCANNED_ZERO_DETECTION_MESG ].mesgFormationFncPtr = &prepareZeroDetectionMessage;
+	txMesgStatus[ CONTINUITY_SCANNED_NON_ZERO_DETECTION_MESG ].mesgFormationFncPtr = &prepareScannedValueMesgForNextPossibleNode;
 
-	UDPTxStatus[ SYNC_COMMAND_RESPONSE_MESG ].mesgFormationFncPtr = &prepareSyncCommandResponse;
+	txMesgStatus[ SYNC_COMMAND_RESPONSE_MESG ].mesgFormationFncPtr = &prepareSyncCommandResponse;
 
-	UDPTxStatus[ PROCESS_ERROR_MESG ].mesgFormationFncPtr = &prepareProcessErrorMesg;
+	txMesgStatus[ PROCESS_ERROR_MESG ].mesgFormationFncPtr = &prepareProcessErrorMesg;
 
 	//Prepare structure for UDP Tx
 	dest_addrForUDPTx.sin_family = AF_INET;
@@ -309,7 +296,7 @@ static void event_handler( void* arg, esp_event_base_t event_base,
 		xEventGroupClearBits( s_wifi_event_group, WIFI_CONNECTED_BIT );
 
 		esp_wifi_connect();
-		WIFI_DBG_LOG( WIFI_DBG_TAG, "Reconnecting...." );
+		WIFI_DBG_LOG( WIFI_DBG_TAG, "Reconnecting.." );
     }
     else if( event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP )
     {
@@ -317,14 +304,11 @@ static void event_handler( void* arg, esp_event_base_t event_base,
         xEventGroupClearBits( s_wifi_event_group, WIFI_FAIL_BIT );
 
         event = ( ip_event_got_ip_t* ) event_data;
-        WIFI_DBG_LOG( WIFI_DBG_TAG, "Connected Got IP:" IPSTR, IP2STR( &event->ip_info.ip ) );
-        WIFI_DBG_LOG( WIFI_DBG_TAG, "Connected Got IP**:%s", ip4addr_ntoa( &event->ip_info.ip ) );
-
-        //createUDPServerTask( );
-        //createTCPServerClientTask( );
+        WIFI_DBG_LOG( WIFI_DBG_TAG, "Connected IP:" IPSTR, IP2STR( &event->ip_info.ip ) );
+        //WIFI_DBG_LOG( WIFI_DBG_TAG, "Connected IP**:%s", ip4addr_ntoa( &event->ip_info.ip ) );
     }
     EventBits_t bits = xEventGroupGetBits( s_wifi_event_group );
-    WIFI_DBG_LOG( WIFI_DBG_TAG, "BITS:%ld", bits );
+    WIFI_DBG_LOG( WIFI_DBG_TAG, "BITS:%ld, %ld, %ld", bits, event_id, ( uint32_t )event_base );
 }
 
 void wifi_init_sta( void )
@@ -398,6 +382,7 @@ void udp_server_task(void *pvParameters)
     int ip_protocol = 0;
     struct sockaddr_in6 dest_addr;
 
+    WIFI_DBG_LOG( WIFI_DBG_TAG, "[** udp_server_task TASK Created **]" );
     while (1)
     {
         if( addr_family == AF_INET )
@@ -527,18 +512,6 @@ void udp_server_task(void *pvParameters)
     vTaskDelete( NULL );
 }
 
-static void udpTxMonitoringTask(void *pvParameters)
-{
-	while( 1 )
-	{
-		if( udpSocketID != 0 )
-		{
-			UDPTxMonitoring( );
-			vTaskDelay( 2 / portTICK_PERIOD_MS );
-		}
-	}
-}
-
 static bool JSN_getUIntegerValueForTheKey( const cJSON *_rootJsnObj, const char* _key, uint32_t *_value )
 {
 	if( _rootJsnObj == NULL )
@@ -553,100 +526,16 @@ static bool JSN_getUIntegerValueForTheKey( const cJSON *_rootJsnObj, const char*
 	return true;
 }
 
-static void UDPTxMonitoring( void )
-{
-	uint8_t ite;
-
-	for( ite = LIVE_STATUS_EXCHANE_MESG; ite <= START_SCAN_COMMAND_MESG; ite++ )
-	{
-		if( UDPTxStatus[ ite ].mesgToBeSent != 0 && UDPTxStatus[ ite ].UDPOrTCPMesg == UDP_MESSAGE )
-		{
-			uint64_t currentTime = esp_timer_get_time()/1000;
-			if( ( currentTime - UDPTxStatus[ ite ].registredOn ) >= UDPTxStatus[ ite ].sentAfterMs )
-			{
-				memset( UDPTxMesg, '\0', sizeof( UDPTxMesg ) );
-				UDPTxStatus[ ite ].mesgFormationFncPtr( &UDPTxMesg[ 0 ] );
-				//WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP TX Mesg:%d,%s", strlen( UDPTxMesg ), UDPTxMesg );
-
-				if( UDPTxStatus[ ite ].P2POrBroadcast == BROADCAST_MESG )
-					dest_addrForUDPTx.sin_addr.s_addr = inet_addr( BROADCAST_IP_ADDRESS );
-				else
-					dest_addrForUDPTx.sin_addr.s_addr = inet_addr( P2P_IP_ADDRESS );
-
-				for( uint8_t retryCntr = 0; retryCntr < 3; retryCntr++ )
-				{
-					int err = sendto( udpSocketID, UDPTxMesg, strlen( UDPTxMesg ), 0,
-							          ( struct sockaddr * )&dest_addrForUDPTx, sizeof( dest_addrForUDPTx ) );
-					if (err < 0)
-					{
-						WIFI_DBG_ERR( WIFI_DBG_TAG, "Error In UDP Tx ERR: %d", errno);
-						vTaskDelay( 5 / portTICK_PERIOD_MS );
-					}
-					else
-					{
-						break;
-					}
-					WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP Tx Retrying..." );
-				}
-			}
-		}
-	}
-}
-
 void createTCPServerClientTask( void )
 {
-#if defined( NON_BLOCKING_TCP_CLIENT )
 	if( tcpRxNonBlockingTaskHandle == NULL )
-#else
-	if( wifiTCPClientTaskHandle == NULL )
-#endif
 	{
-#if defined( NON_BLOCKING_TCP_CLIENT )
-//		xTaskCreatePinnedToCore( tcp_server_task,
-//								 "tcp_rx_non_blocking_client",
-//								 10000,
-//								 ( void* )AF_INET,
-//								 1,
-//								 &tcpRxNonBlockingTaskHandle,
-//								 0 );
-
-		xTaskCreatePinnedToCore( tcp_server_task_1,
-								 "tcp_rx_non_blocking_client",
-								 4096,
-								 ( void* )AF_INET,
-								 1,
-								 &tcpRxNonBlockingTaskHandle,
-								 0 );
-#else
-		xTaskCreatePinnedToCore( tcp_client_task, "tcp_client", 4096, ( void* )AF_INET, 1, &wifiTCPClientTaskHandle, 0 );
-#endif
-		xTaskCreatePinnedToCore( tcpTxMonitoringTask,
-								 "tcp_tx_monitoring",
-								 4096,
-								 ( void* )AF_INET,
-								 2,
-								 &tcpTxMonitoringTaskHandle,
-								 0 );
+		xTaskCreatePinnedToCore( tcp_server_task_1, "tcp_rx_non_blocking_client",
+								 4096, ( void* )AF_INET,
+								 1, &tcpRxNonBlockingTaskHandle, 0 );
 	}
 }
 
-static void deletetcpRxNonBlockingTask( )
-{
-	if( tcpRxNonBlockingTaskHandle != NULL )
-	{
-		xTaskNotifyGive( tcpRxNonBlockingTaskHandle );
-	}
-}
-
-static void deletetcpTxNonBlockingTask( )
-{
-	if( tcpTxMonitoringTaskHandle != NULL )
-	{
-		xTaskNotifyGive( tcpTxMonitoringTaskHandle );
-	}
-}
-
-#if defined( NON_BLOCKING_TCP_CLIENT )
 /**
  * @brief Indicates that the file descriptor represents an invalid (uninitialized or closed) socket
  *
@@ -690,7 +579,6 @@ static void log_socket_error(const char *tag, const int sock, const int err, con
 			free( address_info );
 
 		tcpSocketID = 0;
-		deletetcpRxNonBlockingTask( );
 	}
 	TCPSocketDisconnectionError = err;
 }
@@ -765,7 +653,7 @@ static bool createTCPServerSocket( )
 		return false;
 		//goto error;
 	}
-	ESP_LOGI( WIFI_DBG_TAG, "tcp_server_task Task Created" );
+	//ESP_LOGI( WIFI_DBG_TAG, "[** tcp_server_task Task Created **]" );
 
 	tcpSocketID = socket( address_info->ai_family, address_info->ai_socktype, address_info->ai_protocol );
 	if( tcpSocketID < 0 )
@@ -774,10 +662,10 @@ static bool createTCPServerSocket( )
 		return false;
 		//goto error;
 	}
-	ESP_LOGI( TCP_DBG_TAG, "Socket created, connecting to %s:%s", TCP_SERVER_IP_ADDRESS, TCP_SERVER_PORT );
+	ESP_LOGI( TCP_DBG_TAG, "Socket connecting to %s:%s", TCP_SERVER_IP_ADDRESS, TCP_SERVER_PORT );
 
 	struct timeval timeout;
-	timeout.tv_sec = 10;  // Set the timeout to 10 seconds
+	timeout.tv_sec = 60;  // Set the timeout to 10 seconds
 	timeout.tv_usec = 0;
 
 	if (lwip_setsockopt( tcpSocketID, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
@@ -790,11 +678,17 @@ static bool createTCPServerSocket( )
 		return false;
 	}
 
-	int keepalive = 1;
+	int keepalive = 60;
 	if (lwip_setsockopt( tcpSocketID, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive)) < 0) {
 		log_socket_error(TCP_DBG_TAG, tcpSocketID, errno, "Failed to set SO_KEEPALIVE");
 		return false;
 	}
+
+//	// Set keep-alive parameters for the socket
+//	if (lwip_setsockopt(tcpSocketID, SOL_SOCKET, SO_KEEPALIVE, &cfg, sizeof( cfg ) ) < 0 ) {
+//	    log_socket_error(TCP_DBG_TAG, tcpSocketID, errno, "Failed to set TCP_KEEPALIVE");
+//	    return false;
+//	}
 
 	// Marking the socket as non-blocking
 	int flags = fcntl( tcpSocketID, F_GETFL );
@@ -861,22 +755,17 @@ static void tcp_server_task_1( void *pvParameters )
 {
 	static char rx_buffer[ 1024 ];
 	int len = 0;
-	/*
-	static const char *payload = "TCP RX Non BLocking";
 
-	int len = socket_send( TCP_DBG_TAG, tcpSocketID, payload, strlen( payload ) );
-	if( len < 0 )
-	{
-		TCP_DBG_ERR( TCP_DBG_TAG, "Error during dummy socket_send" );
-	}*/
-	//TCP_DBG_LOG( TCP_DBG_TAG, "Client Dummy Data sent...%d, %s, %d", len, payload, tcpSocketID );
-
+	TCP_DBG_LOG( TCP_DBG_TAG, "[** tcp_server_task_1 Task Created **]" );
 	do
 	{
+//		if( tcpSocketID == 0 )
+//			continue;
+
 		len = try_receive( TCP_DBG_TAG, tcpSocketID, rx_buffer, sizeof( rx_buffer ) );
 		if( len < 0 )
 		{
-			TCP_DBG_ERR( TCP_DBG_TAG, "Error occurred during try_receive" );
+			TCP_DBG_ERR( TCP_DBG_TAG, "Error in try_receive" );
 			break;
 		}
 		else if( len> 0 )
@@ -886,319 +775,151 @@ static void tcp_server_task_1( void *pvParameters )
 			rx_buffer[ len ] = 0; //Null-terminate whatever we received and treat like a string...
 			parseReceivedMessage( rx_buffer, strlen( rx_buffer ), TCP_MESSAGE );
 		}
-
-		if( ulTaskNotifyTake( pdTRUE, 0 ) != 0 )
-		{
-			TCP_DBG_ERR( TCP_DBG_TAG, "Task Deleted, tcp_server_task_1" );
-			break;
-		}
 		vTaskDelay( 2 / portTICK_PERIOD_MS ); //2ms Sleep
 	}while( len >= 0 );
 
 	TCP_DBG_ERR( TCP_DBG_TAG, "TCP_Socket Error Found");
-	/*
-	// Close socket and free resources
-    if( tcpSocketID > 0 ) {
-        close( tcpSocketID );
-    }
-    if( address_info != NULL ) //This check added later but not checked or debugged
-    	free( address_info );
-	*/
-    tcpSocketID = 0;
-
 	vTaskDelete( NULL );
 }
 
-/*
-static void tcp_server_task( void *pvParameters )
+static void tcpAndudpTxMonitoringTask( void *pvParameters )
 {
-	//static const char *payload = "TCP Non BLocking";
-	static char rx_buffer[ 1024 ];
-	static int sockerr;
-
-	struct addrinfo hints = { .ai_socktype = SOCK_STREAM };
-	struct addrinfo *address_info = NULL;
-
-	int res = getaddrinfo( TCP_SERVER_IP_ADDRESS, TCP_SERVER_PORT, &hints, &address_info );
-	if( res != 0 || address_info == NULL )
-	{
-		TCP_DBG_ERR( TCP_DBG_TAG, "couldn't get hostname for `%s` "
-					  "getaddrinfo() returns %d, addrinfo=%p", TCP_SERVER_IP_ADDRESS, res, address_info );
-		goto error;
-	}
-	ESP_LOGI( WIFI_DBG_TAG, "tcp_server_task Task Created" );
-
+	TCP_DBG_LOG( TCP_DBG_TAG, "[** tcpAndudpTxMonitoringTask Task Created **]" );
 	while( 1 )
 	{
-		// Creating client's socket
-		sockerr = 0;
-		tcpSocketID = socket( address_info->ai_family, address_info->ai_socktype, address_info->ai_protocol );
-		if( tcpSocketID < 0 )
-		{
-			log_socket_error( TCP_DBG_TAG, tcpSocketID, errno, "Unable to create socket" );
-			sockerr = 1;
-			//goto error;
-		}
-		ESP_LOGI( TCP_DBG_TAG, "Socket created, connecting to %s:%s", TCP_SERVER_IP_ADDRESS, TCP_SERVER_PORT );
+		sendMessageIfRegistered( );
+		vTaskDelay( 2 / portTICK_PERIOD_MS );
+	}
+}
 
-		// Marking the socket as non-blocking
-		int flags = 0;
-		if( sockerr == 0)
-			flags = fcntl( tcpSocketID, F_GETFL );
+static void sendMessageIfRegistered( void )
+{
+	uint8_t ite = ( uint8_t )LIVE_STATUS_EXCHANE_MESG;
 
-		if( sockerr == 0 && fcntl( tcpSocketID, F_SETFL, flags | O_NONBLOCK ) == -1 )
-		{
-			log_socket_error( TCP_DBG_TAG, tcpSocketID, errno, "Unable to set socket non blocking" );
-		}
+#if defined( MONITOR_HEAP_MEMORY )
+	uint32_t heapMemoryBytes = 0;
+#endif
 
-		if( sockerr == 0 && connect( tcpSocketID, address_info->ai_addr, address_info->ai_addrlen ) != 0 )
+	for( ite = LIVE_STATUS_EXCHANE_MESG; ite < MAX_MESG_TO_APP; ite++ )
+	{
+//		if( ite != LIVE_STATUS_EXCHANE_MESG && txMesgStatus[ ite ].mesgToBeSent == 1 )
+//			WIFI_DBG_LOG( WIFI_DBG_TAG, "Mesg Found : %d, %ld", ite, txMesgStatus[ ite ].sentAfterMs );
+
+		//Check If Message is not registered
+		if( txMesgStatus[ ite ].mesgToBeSent == 0 )
+			continue;
+
+		//Check if instant arrived on which TCP message to be sent
+		uint64_t currentTime = esp_timer_get_time()/1000;
+		if( ( txMesgStatus[ ite ].sentAfterMs != 1 ) &&
+			( ( currentTime - txMesgStatus[ ite ].registredOn ) < txMesgStatus[ ite ].sentAfterMs ) )
+			return;
+
+		//Check if message to be sent using TCP socket
+		if( txMesgStatus[ ite ].UDPOrTCPMesg == TCP_MESSAGE )
 		{
-			if( errno == EINPROGRESS )
+			//return from here if not a valid socket ID found
+			if( tcpSocketID == 0 )
+				return;
+
+#if defined( MONITOR_HEAP_MEMORY )
+			heapMemoryBytes = esp_get_free_heap_size();
+#endif
+
+			memset( TCPTxMesg, '\0', sizeof( TCPTxMesg ) );
+			txMesgStatus[ ite ].mesgFormationFncPtr( &TCPTxMesg[ 0 ] );
+
+#if defined( MONITOR_HEAP_MEMORY )
+			if( esp_get_free_heap_size() != heapMemoryBytes )
+				WIFI_DBG_LOG( WIFI_DBG_TAG, "**Mem Leak:%ld, %ld, %d********\n",
+						      ( esp_get_free_heap_size() - heapMemoryBytes ), esp_get_free_heap_size(), ite );
+#endif
+
+			/*
+			if( txMesgStatus[ ite ].UDPOrTCPMesg == TCP_MESSAGE )
+				WIFI_DBG_LOG( WIFI_DBG_TAG, "TCP TX:%d,%s", strlen( TCPTxMesg ), TCPTxMesg );
+			else
+				WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP TX:%d,%s", strlen( TCPTxMesg ), TCPTxMesg );
+			*/
+
+			for( uint8_t retryCntr = 0; retryCntr < 3; retryCntr++ )
 			{
-				TCP_DBG_LOG( TCP_DBG_TAG, "connection in progress" );
-				fd_set fdset;
-				FD_ZERO( &fdset );
-				FD_SET( tcpSocketID, &fdset );
+				if( tcpSocketID == 0 )
+					return;
 
-				// Connection in progress -> have to wait until the connecting socket is marked as writable, i.e. connection completes
-				res = select( tcpSocketID+1, NULL, &fdset, NULL, NULL );
-				if( res < 0 )
+				int err = socket_send( TCP_DBG_TAG, tcpSocketID, TCPTxMesg, strlen( TCPTxMesg ) );
+				if (err < 0)
 				{
-					log_socket_error( TCP_DBG_TAG, tcpSocketID, errno, "Error during connection: select for socket to be writable" );
-					sockerr = 1;
-				}
-				else if( res == 0 )
-				{
-					log_socket_error( TCP_DBG_TAG, tcpSocketID, errno, "Connection timeout: select for socket to be writable" );
-					sockerr = 1;
+					WIFI_DBG_ERR( WIFI_DBG_TAG, "Err In TCP Tx: %d", errno);
+					vTaskDelay( 5 / portTICK_PERIOD_MS );
 				}
 				else
 				{
-					socklen_t len = ( socklen_t )sizeof(int);
-
-					if( getsockopt( tcpSocketID, SOL_SOCKET, SO_ERROR, (void*)( &sockerr ), &len ) < 0 )
-					{
-						log_socket_error( TCP_DBG_TAG, tcpSocketID, errno, "Error when getting socket error using getsockopt()" );
-						sockerr = 1;
-					}
-					if( sockerr )
-					{
-						log_socket_error( TCP_DBG_TAG, tcpSocketID, sockerr, "Connection error" );
-						sockerr = 1;
-					}
-				}
-			}
-			else
-			{
-				log_socket_error( TCP_DBG_TAG, tcpSocketID, errno, "Socket is unable to connect" );
-				sockerr = 1;
-			}
-		}
-
-		if( sockerr == 0 )
-		{
-//			TCP_DBG_LOG( TCP_DBG_TAG, "Client sends data to the server...");
-//			int len = socket_send( TCP_DBG_TAG, tcpSocketID, payload, strlen( payload ) );
-//			if( len < 0 )
-//			{
-//				TCP_DBG_ERR( TCP_DBG_TAG, "Error occurred during socket_send");
-//				goto error;
-//			}
-//			TCP_DBG_LOG( TCP_DBG_TAG, "&&&&&&&&&&&&Written: %d, %s, %d", len, payload, tcpSocketID );
-			int len = 0;
-
-			do
-			{
-				len = try_receive( TCP_DBG_TAG, tcpSocketID, rx_buffer, sizeof( rx_buffer ) );
-				if( len < 0 )
-				{
-	//				TCP_DBG_ERR( TCP_DBG_TAG, "Error occurred during try_receive" );
-					close( tcpSocketID );
-					free( address_info );
 					break;
 				}
-				else if( len> 0 )
-					TCP_DBG_LOG( TCP_DBG_TAG, "Received: %d-%s", len, rx_buffer );
-
-				vTaskDelay( 5 / portTICK_PERIOD_MS );
-			}while( len >= 0 );
-
-			TCP_DBG_LOG( TCP_DBG_TAG, "Socket Error Found" );
-			if( tcpSocketID == INVALID_SOCK )
-			{
-				TCP_DBG_ERR( TCP_DBG_TAG, "Closing TCP Socket" );
-				close( tcpSocketID );
+				//WIFI_DBG_LOG( WIFI_DBG_TAG, "TCP Tx Retrying..." );
 			}
 		}
-		close( tcpSocketID );
+		else if( txMesgStatus[ ite ].UDPOrTCPMesg == UDP_MESSAGE ) ////Check if message to be sent using UDP socket
+		{
+			//return from here if not a valid socket ID found
+			if( udpSocketID == 0 )
+				return;
 
-		if( address_info != NULL )
-			free( address_info );
-
-		vTaskDelay( 500 / portTICK_PERIOD_MS );
-	}
-error:
-	TCP_DBG_LOG( TCP_DBG_TAG, "Deleting Socket:" );
-	close( tcpSocketID );
-	free( address_info );
-	vTaskDelete( NULL );
-}*/
-
-#else
-static void tcp_client_task( void *pvParameters )
-{
-	char rx_buffer[ 512 ];
-	char host_ip[] = TCP_SERVER_IP_ADDRESS;
-	int addr_family = 0;
-	int ip_protocol = 0;
-	uint32_t mesgCounter = 0;
-
-	ESP_LOGI( WIFI_DBG_TAG, "TCP Tx Task Created" );
-
-	while( 1 )
-	{
-#if defined(CONFIG_EXAMPLE_IPV4)
-		struct sockaddr_in dest_addr;
-		dest_addr.sin_addr.s_addr = inet_addr( host_ip );
-		dest_addr.sin_family = AF_INET;
-		dest_addr.sin_port = htons( TCP_SERVER_PORT );
-		addr_family = AF_INET;
-		ip_protocol = IPPROTO_IP;
-#elif defined(CONFIG_EXAMPLE_IPV6)
-		struct sockaddr_in6 dest_addr = { 0 };
-		inet6_aton(host_ip, &dest_addr.sin6_addr);
-		dest_addr.sin6_family = AF_INET6;
-		dest_addr.sin6_port = htons(PORT);
-		dest_addr.sin6_scope_id = esp_netif_get_netif_impl_index(EXAMPLE_INTERFACE);
-		addr_family = AF_INET6;
-		ip_protocol = IPPROTO_IPV6;
-#elif defined(CONFIG_EXAMPLE_SOCKET_IP_INPUT_STDIN)
-		struct sockaddr_storage dest_addr = { 0 };
-		ESP_ERROR_CHECK(get_addr_from_stdin(PORT, SOCK_STREAM, &ip_protocol, &addr_family, &dest_addr));
+#if defined( MONITOR_HEAP_MEMORY )
+			heapMemoryBytes = esp_get_free_heap_size();
 #endif
-		tcpSocketID =  socket( addr_family, SOCK_STREAM, ip_protocol );
-		if( tcpSocketID < 0 )
-		{
-			ESP_LOGE( WIFI_DBG_TAG, "Unable to create TCP socket: errno %d", errno );
-			break;
-		}
-		ESP_LOGI( WIFI_DBG_TAG, "Socket created, connecting to %s:%d", host_ip, TCP_SERVER_PORT );
+			memset( UDPTxMesg, '\0', sizeof( UDPTxMesg ) );
+			txMesgStatus[ ite ].mesgFormationFncPtr( &UDPTxMesg[ 0 ] );
 
-		int err = connect( tcpSocketID, ( struct sockaddr * )&dest_addr, sizeof( struct sockaddr_in6 ) );
-		if( err != 0 )
-		{
-			ESP_LOGE( WIFI_DBG_TAG, "Socket unable to connect: errno %d", errno );
-			break;
-		}
-		ESP_LOGI( WIFI_DBG_TAG, "TCP Socket Successfully connected" );
-
-		while( 1 )
-		{
-			memset( &UDPTxMesg, "\0", sizeof( UDPTxMesg ) );
-			//memcpy( UDPTxMesg, "Palak Patel", strlen( "Palak Patel" ) );
-			sprintf( UDPTxMesg, "Palak Patel : %ld", mesgCounter++ );
-//			for( uint8_t retryCntr = 0; retryCntr < 3; retryCntr++ )
-//			{
-				int err = send( tcpSocketID, UDPTxMesg, strlen( UDPTxMesg ), 0 );
-//				if( err < 0 )
-//				{
-//
-//				}
-//			}
-			//ESP_LOGI( WIFI_DBG_TAG, "Waiting to receive" );
-//			int len = recv( tcpSocketID, rx_buffer, sizeof( rx_buffer ) - 1, 0 );
-//			// Error occurred during receiving
-//			if( len < 0 )
-//			{
-//				ESP_LOGE( WIFI_DBG_TAG, "recv failed: errno %d", errno );
-//				break;
-//			}
-//			// Data received
-//			else
-//			{
-//				rx_buffer[ len ] = 0; // Null-terminate whatever we received and treat like a string
-//				ESP_LOGI( WIFI_DBG_TAG, "Received %d bytes from %s:", len, host_ip );
-//				ESP_LOGI( WIFI_DBG_TAG, "%s", rx_buffer );
-//			}
-			vTaskDelay( 10 / portTICK_PERIOD_MS );
-		}
-
-		if( tcpSocketID != -1 )
-		{
-			ESP_LOGE( WIFI_DBG_TAG, "Shutting down socket and restarting..." );
-			shutdown( tcpSocketID, 0 );
-			close( tcpSocketID );
-		}
-	}
-	vTaskDelete( NULL );
-}
+#if defined( MONITOR_HEAP_MEMORY )
+			if( esp_get_free_heap_size() != heapMemoryBytes )
+				WIFI_DBG_LOG( WIFI_DBG_TAG, "**Mem Leak:%ld, %ld, %d********\n",
+							( esp_get_free_heap_size() - heapMemoryBytes ), esp_get_free_heap_size(), ite );
 #endif
+			//WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP TX Mesg:%d,%s", strlen( UDPTxMesg ), UDPTxMesg );
 
-static void tcpTxMonitoringTask( void *pvParameters )
-{
-	uint8_t ite = LIVE_STATUS_EXCHANE_MESG;
-	while( 1 )
-	{
-		for( ite = LIVE_STATUS_EXCHANE_MESG; ite < MAX_MESG_TO_APP; ite++ )
-		{
-			if( UDPTxStatus[ ite ].mesgToBeSent != 0 && UDPTxStatus[ ite ].UDPOrTCPMesg == TCP_MESSAGE )
+			if( txMesgStatus[ ite ].P2POrBroadcast == BROADCAST_MESG )
+				dest_addrForUDPTx.sin_addr.s_addr = inet_addr( BROADCAST_IP_ADDRESS );
+			else
+				dest_addrForUDPTx.sin_addr.s_addr = inet_addr( P2P_IP_ADDRESS );
+
+			for( uint8_t retryCntr = 0; retryCntr < 3; retryCntr++ )
 			{
-				uint64_t currentTime = esp_timer_get_time()/1000;
-				if( ( ( currentTime - UDPTxStatus[ ite ].registredOn ) >= UDPTxStatus[ ite ].sentAfterMs ) ||
-					( UDPTxStatus[ ite ].sentAfterMs == 1 ) )
+				//return from here if not a valid socket ID found
+				if( udpSocketID == 0 )
+					return;
+
+				int err = sendto( udpSocketID, UDPTxMesg, strlen( UDPTxMesg ), 0,
+								  ( struct sockaddr * )&dest_addrForUDPTx, sizeof( dest_addrForUDPTx ) );
+				if (err < 0)
 				{
-					memset( TCPTxMesg, '\0', sizeof( TCPTxMesg ) );
-					UDPTxStatus[ ite ].mesgFormationFncPtr( &TCPTxMesg[ 0 ] );
-
-					/*
-					if( UDPTxStatus[ ite ].UDPOrTCPMesg == TCP_MESSAGE )
-						WIFI_DBG_LOG( WIFI_DBG_TAG, "TCP TX:%d,%s", strlen( TCPTxMesg ), TCPTxMesg );
-					else
-						WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP TX:%d,%s", strlen( TCPTxMesg ), TCPTxMesg );
-					*/
-
-					for( uint8_t retryCntr = 0; retryCntr < 3; retryCntr++ )
-					{
-						int err = socket_send( TCP_DBG_TAG, tcpSocketID, TCPTxMesg, strlen( TCPTxMesg ) );
-						if (err < 0)
-						{
-							WIFI_DBG_ERR( WIFI_DBG_TAG, "Err In TCP Tx ERR: %d", errno);
-							vTaskDelay( 5 / portTICK_PERIOD_MS );
-						}
-						else
-						{
-							break;
-						}
-						WIFI_DBG_LOG( WIFI_DBG_TAG, "TCP Tx Retrying..." );
-					}
+					WIFI_DBG_ERR( WIFI_DBG_TAG, "Err In UDP Tx: %d", errno);
+					vTaskDelay( 5 / portTICK_PERIOD_MS );
 				}
+				else
+				{
+					break;
+				}
+				WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP Tx Retrying..." );
 			}
 		}
-		if( ulTaskNotifyTake( pdTRUE, 0 ) != 0 )
-		{
-			TCP_DBG_LOG( TCP_DBG_TAG, "Task Deleted, tcpTxMonitoringTask" );
-			// Cleanup or other tasks before deleting
-			// Delete the task
-			vTaskDelete( NULL );
-		}
-		vTaskDelay( 2 / portTICK_PERIOD_MS );
 	}
 }
 
 static void parseReceivedMessage( const char* const _mesg, uint16_t _mesgLength, uint8_t _tcpOrUDP )
 {
-	const cJSON *rootJsnObj = NULL;
+	uint32_t command = 0;
 
-	rootJsnObj = cJSON_Parse( _mesg );
+	const cJSON *rootJsnObj = cJSON_Parse( _mesg );
 	if( rootJsnObj == NULL )
 		return;
 
-	uint32_t command = 0;
 	if( JSN_getUIntegerValueForTheKey( rootJsnObj, JSN_MESSAGE_CODE_STR, &command ) != true )
-	{ return; }
+	{ cJSON_Delete(rootJsnObj); return; }
 
-	if( command != LIVE_STATUS_EXCHANGE_CMD )
-		WIFI_DBG_LOG( WIFI_DBG_TAG, "TCP MC: %ld", command );
+//	if( command != LIVE_STATUS_EXCHANGE_CMD )
+//		WIFI_DBG_LOG( WIFI_DBG_TAG, "TCP MC: %ld", command );
 
 	switch( command )
 	{
@@ -1261,7 +982,7 @@ static void parseReceivedMessage( const char* const _mesg, uint16_t _mesgLength,
 		case MQTT_GET_CLOCK_VALUE:
 		{
 			//WIFI_DBG_LOG( WIFI_DBG_TAG, "MQTT_GET_CLOCK_VALUE : \n%s", _mesg );
-			registerTxMessage( SYNC_COMMAND_RESPONSE_MESG, 1, P2P_MESG, TCP_MESSAGE );
+			registerTxMessage( SYNC_COMMAND_RESPONSE_MESG, ( getNodeNumber() * 2 ), P2P_MESG, TCP_MESSAGE );
 		}
 		break;
 
@@ -1270,8 +991,8 @@ static void parseReceivedMessage( const char* const _mesg, uint16_t _mesgLength,
 			//WIFI_DBG_LOG( WIFI_DBG_TAG, "MQTT_CLOCK_OFFSET_ADJUSTMENT : \n%s", _mesg );
 			if( parseClockOffsetAdjustmentMesg( rootJsnObj ) == true )
 			{
-				//WIFI_DBG_LOG( WIFI_DBG_TAG, "SYNC_RESPONSE_MESG Registered" );
-				registerTxMessage( SYNC_COMMAND_RESPONSE_MESG, ( 2*getNodeNumber() ), P2P_MESG, TCP_MESSAGE );
+					//WIFI_DBG_LOG( WIFI_DBG_TAG, "SYNC_RESPONSE_MESG Registered" );
+					registerTxMessage( SYNC_COMMAND_RESPONSE_MESG, ( getNodeNumber() * 2 ), P2P_MESG, TCP_MESSAGE );
 			}
 		}
 		break;
@@ -1282,6 +1003,7 @@ static void parseReceivedMessage( const char* const _mesg, uint16_t _mesgLength,
 		}
 		break;
 	}
+	cJSON_Delete( rootJsnObj );
 }
 
 static bool parseClockOffsetAdjustmentMesg( const cJSON *_jsnObj )
@@ -1302,7 +1024,7 @@ static bool parseClockOffsetAdjustmentMesg( const cJSON *_jsnObj )
 				COMMON_DEBUG_LOG( CLK_SYNK_DBG_TAG, "Offset: %d", array_item->valueint );
 				setClockOffset( array_item->valuedouble );
 				lockCurrentOffsettedClockValue( );
-				WIFI_DBG_LOG( WIFI_DBG_TAG, "CLK Offset Set : %s", cJSON_Print( _jsnObj )  );
+				//WIFI_DBG_LOG( WIFI_DBG_TAG, "CLK Offset Set : %s", cJSON_Print( _jsnObj )  );
 				return true;
 			}
 		}
@@ -1330,7 +1052,7 @@ static bool validateAndProcessScanValueAckResp( const cJSON *_jsnObj )
 		( cJSON_GetArraySize( scanForNodeJsnObj ) != cJSON_GetArraySize( scanValRecAckJsnObj ) ) )
 	{
 		JSN_DBG_ERR( JSN_DBG_TAG, "Invalid Ack Jsn-2, %d, %d", cJSON_GetArraySize( scanForNodeJsnObj ),
-				                                                       cJSON_GetArraySize( scanValRecAckJsnObj ) );
+				                                               cJSON_GetArraySize( scanValRecAckJsnObj ) );
 		return false;
 	}
 
@@ -1453,26 +1175,26 @@ void registerTxMessage( UDPTxMesgIdentifier_e _mesgIdent, uint32_t _sentAfter, u
 {
 	if( _mesgIdent < MAX_MESG_TO_APP )
 	{
-		UDPTxStatus[ _mesgIdent ].mesgToBeSent = 1;
-		UDPTxStatus[ _mesgIdent ].UDPOrTCPMesg = UDPOrTCP;
+		//WIFI_DBG_LOG( WIFI_DBG_TAG, "Regstrd : %d", _mesgIdent );
+		txMesgStatus[ _mesgIdent ].mesgToBeSent = 1;
+		txMesgStatus[ _mesgIdent ].UDPOrTCPMesg = UDPOrTCP;
 
 		if( _mesgIdent == LIVE_STATUS_EXCHANE_MESG ||
 			_mesgIdent == LOCK_CONNECTOR_STATE_CHANGE_MESG ||
 		    _mesgIdent == NODE_RESET_INDICATION_MESG ||
 			_mesgIdent == NODE_BASIC_INFORMATION_MESG )
 		{
-			//UDPTxStatus[ LIVE_STATUS_EXCHANE_MESG ].mesgToBeSent = 1;
-			UDPTxStatus[ LIVE_STATUS_EXCHANE_MESG ].registredOn = esp_timer_get_time()/1000;
-			UDPTxStatus[ LIVE_STATUS_EXCHANE_MESG ].sentAfterMs = _sentAfter;
-			UDPTxStatus[ LIVE_STATUS_EXCHANE_MESG ].P2POrBroadcast = P2P_MESG;
+			//txMesgStatus[ LIVE_STATUS_EXCHANE_MESG ].mesgToBeSent = 1;
+			txMesgStatus[ LIVE_STATUS_EXCHANE_MESG ].registredOn = esp_timer_get_time()/1000;
+			txMesgStatus[ LIVE_STATUS_EXCHANE_MESG ].sentAfterMs = _sentAfter;
+			txMesgStatus[ LIVE_STATUS_EXCHANE_MESG ].P2POrBroadcast = P2P_MESG;
 			//WIFI_DBG_LOG( WIFI_DBG_TAG, "Live status Exchange Message Registered" );
 		}
 		else
 		{
-			//UDPTxStatus[ _mesgIdent ].mesgToBeSent = 1;
-			UDPTxStatus[ _mesgIdent ].registredOn = esp_timer_get_time()/1000;
-			UDPTxStatus[ _mesgIdent ].sentAfterMs = _sentAfter;
-			UDPTxStatus[ _mesgIdent ].P2POrBroadcast = _p2pOrBroadcast;
+			txMesgStatus[ _mesgIdent ].registredOn = esp_timer_get_time()/1000;
+			txMesgStatus[ _mesgIdent ].sentAfterMs = _sentAfter;
+			txMesgStatus[ _mesgIdent ].P2POrBroadcast = _p2pOrBroadcast;
 		}
 	}
 }
@@ -1481,22 +1203,23 @@ void clearRegisteredMesg( UDPTxMesgIdentifier_e _mesgIdent )
 {
 	if( _mesgIdent < MAX_MESG_TO_APP )
 	{
-		UDPTxStatus[ _mesgIdent ].mesgToBeSent = 0;
-		UDPTxStatus[ _mesgIdent ].registredOn = 0;
-		UDPTxStatus[ _mesgIdent ].sentAfterMs = 0;
+		//WIFI_DBG_LOG( WIFI_DBG_TAG, "Cleared : %d", _mesgIdent );
+		txMesgStatus[ _mesgIdent ].mesgToBeSent = 0;
+		txMesgStatus[ _mesgIdent ].registredOn = 0;
+		txMesgStatus[ _mesgIdent ].sentAfterMs = 0;
 
 		if( _mesgIdent == LIVE_STATUS_EXCHANE_MESG )
 		{
-			UDPTxStatus[ LOCK_CONNECTOR_STATE_CHANGE_MESG ].mesgToBeSent = 0;
-			UDPTxStatus[ NODE_RESET_INDICATION_MESG ].mesgToBeSent = 0;
-			UDPTxStatus[ NODE_BASIC_INFORMATION_MESG ].mesgToBeSent = 0;
+			txMesgStatus[ LOCK_CONNECTOR_STATE_CHANGE_MESG ].mesgToBeSent = 0;
+			txMesgStatus[ NODE_RESET_INDICATION_MESG ].mesgToBeSent = 0;
+			txMesgStatus[ NODE_BASIC_INFORMATION_MESG ].mesgToBeSent = 0;
 		}
 	}
 }
 
 bool checkIfAnySimilarMesgRegistered( UDPTxMesgIdentifier_e _mesgIdent )
 {
-	if( _mesgIdent < MAX_MESG_TO_APP && UDPTxStatus[ _mesgIdent ].mesgToBeSent )
+	if( _mesgIdent < MAX_MESG_TO_APP && txMesgStatus[ _mesgIdent ].mesgToBeSent )
 		return true;
 
 	return false;
@@ -1504,31 +1227,24 @@ bool checkIfAnySimilarMesgRegistered( UDPTxMesgIdentifier_e _mesgIdent )
 
 static void prepareLiveStatusMessage( char* _mesg )
 {
-	cJSON *rootJSNObj = NULL;
+	cJSON *rootJSNObj = cJSON_CreateObject();
+	cJSON *tcpJsonArray = cJSON_CreateArray();
 
-	rootJSNObj = cJSON_CreateObject();
 	cJSON_AddNumberToObject( rootJSNObj, JSN_MESSAGE_CODE_STR, LIVE_STATUS_EXCHANGE_CMD );
 	cJSON_AddNumberToObject( rootJSNObj, JSN_NODE_NUMBER_STR, NODE_NUMBER );
+	cJSON_AddNumberToObject(rootJSNObj, JSN_FREE_HEAP_MEMORY, (double)esp_get_free_heap_size() );
+
 
 	if( checkIfAnySimilarMesgRegistered( NODE_RESET_INDICATION_MESG ) )
 	{
-		cJSON_AddNumberToObject( rootJSNObj, JSN_NODE_RESET_INDICATION_STR, 1 );
-		cJSON_AddNumberToObject( rootJSNObj, JSN_ESP_RESET_REASON_STR, ( uint8_t )esp_reset_reason() );
-		cJSON *nativeClkWithOffsetJsnObj = cJSON_CreateNumber( ( double )getClockValueAfterOffset() );
-
-		if( nativeClkWithOffsetJsnObj == NULL )
-		{
-			fprintf( stderr, "Error creating cJSON object for uint64_t value\n" );
-			cJSON_Delete( rootJSNObj );
-			return;
-		}
-		cJSON_AddItemToObject( rootJSNObj, JSN_NATIVE_CLOCK_WITH_OFFSET_STR, nativeClkWithOffsetJsnObj );
-		cJSON_AddNumberToObject( rootJSNObj, JSN_CLOCK_OFFSETING_DONE_STR, ( hasClockOffsettingDone() == true ) ? 1 : 0 );
+		cJSON_AddNumberToObject(rootJSNObj, JSN_NODE_RESET_INDICATION_STR, 1);
+		cJSON_AddNumberToObject(rootJSNObj, JSN_ESP_RESET_REASON_STR, (uint8_t)esp_reset_reason());
+		cJSON_AddNumberToObject(rootJSNObj, JSN_CLOCK_OFFSETING_DONE_STR, hasClockOffsettingDone() ? 1 : 0);
+		cJSON_AddNumberToObject(rootJSNObj, JSN_NATIVE_CLOCK_WITH_OFFSET_STR, (double)getClockValueAfterOffset());
 
 		//Check if TCP Reconnection Happened
 		if( TCPPSocketReconnected && TCPSocketDisconnectionError != 0 )
 		{
-		    cJSON *tcpJsonArray = cJSON_CreateArray();
 		    cJSON_AddItemToArray( tcpJsonArray, cJSON_CreateNumber( TCPPSocketReconnected ? 1 : 0 ) );
 		    cJSON_AddItemToArray( tcpJsonArray, cJSON_CreateNumber( TCPSocketDisconnectionError ) );
 		    cJSON_AddItemToObject( rootJSNObj, JSN_TCP_CONNECTION_STATE_STR, tcpJsonArray );
@@ -1556,9 +1272,16 @@ static void prepareLiveStatusMessage( char* _mesg )
 //		cJSON_AddStringToObject( rootJSNObj, JSN_ASSIGNED_IP_ADDRESS_STR, P2P_IP_ADDRESS );
 //	}
 
-	memcpy( _mesg, cJSON_Print( rootJSNObj ), strlen( cJSON_Print( rootJSNObj ) ) );
+	char* jsonStr = cJSON_Print( rootJSNObj ); // Allocate memory for JSON string
+	if( jsonStr != NULL )
+	{
+		strcpy( _mesg, jsonStr ); 	// Copy JSON string to _mesg
+		free( jsonStr ); 			// Free allocated memory
+	}
+
 	//WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP Tx-Live Status Mesg:%d,%s",strlen( cJSON_Print( rootJSNObj ) ), _mesg );
 	cJSON_Delete( rootJSNObj );
+	cJSON_Delete( tcpJsonArray );
 	clearRegisteredMesg( LIVE_STATUS_EXCHANE_MESG );
 }
 
@@ -1583,7 +1306,12 @@ static void prepareExpectedProcessStartTimeResp( char* _mesg )
 	cJSON_AddItemToObject( rootJSNObj, JSN_EXPECTED_PROCESS_START_TIME_STR, processStartTimeJsnObj );
 	cJSON_AddItemToObject( rootJSNObj, JSN_NATIVE_CLOCK_WITH_OFFSET_STR, nativeClkWithOffsetJsnObj );
 
-	memcpy( _mesg, cJSON_Print( rootJSNObj ), strlen( cJSON_Print( rootJSNObj ) ) );
+	char* jsonStr = cJSON_Print( rootJSNObj ); // Allocate memory for JSON string
+	if( jsonStr != NULL )
+	{
+		strcpy( _mesg, jsonStr ); 	// Copy JSON string to _mesg
+		free( jsonStr ); 			// Free allocated memory
+	}
 	//WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP Tx-Process Start Time Mesg:%d,%s",strlen( cJSON_Print( rootJSNObj ) ), _mesg );
 	cJSON_Delete( rootJSNObj );
 	clearRegisteredMesg( EXPECTED_PROCESS_START_TIME_MESG );
@@ -1592,9 +1320,8 @@ static void prepareExpectedProcessStartTimeResp( char* _mesg )
 static void prepareSyncCommandResponse( char* _mesg )
 {
 	uint64_t nativeClock = esp_timer_get_time()/1000;
-	cJSON *rootJSNObj = NULL;
+	cJSON *rootJSNObj = cJSON_CreateObject();
 
-	rootJSNObj = cJSON_CreateObject();
 	cJSON_AddNumberToObject( rootJSNObj, JSN_NODE_NUMBER_STR, getNodeNumber() );
 	cJSON_AddNumberToObject( rootJSNObj, JSN_MESSAGE_CODE_STR, MQTT_GET_CLOCK_VALUE );
 
@@ -1605,14 +1332,17 @@ static void prepareSyncCommandResponse( char* _mesg )
 		offsettedClockValue = ( double )getClockValueAfterOffset();
 	}
 
-	cJSON *nativeClkJsnObj = cJSON_CreateNumber( ( double )nativeClock );
-	cJSON *nativeClkWithOffsetJsnObj = cJSON_CreateNumber( ( double )offsettedClockValue );
-	cJSON_AddItemToObject( rootJSNObj, JSN_NATIVE_CLOCK_STR, nativeClkJsnObj );
-	cJSON_AddItemToObject( rootJSNObj, JSN_NATIVE_CLOCK_WITH_OFFSET_STR, nativeClkWithOffsetJsnObj );
-	cJSON_AddNumberToObject( rootJSNObj, JSN_CLOCK_OFFSETING_DONE_STR, ( hasClockOffsettingDone() == true ) ? 1 : 0 );
+	cJSON_AddItemToObject( rootJSNObj, JSN_NATIVE_CLOCK_STR, cJSON_CreateNumber( (double)nativeClock ) );
+	cJSON_AddItemToObject( rootJSNObj, JSN_NATIVE_CLOCK_WITH_OFFSET_STR, cJSON_CreateNumber( (double)offsettedClockValue ) );
+	cJSON_AddNumberToObject( rootJSNObj, JSN_CLOCK_OFFSETING_DONE_STR, hasClockOffsettingDone() ? 1 : 0 );
 
-	memcpy( _mesg, cJSON_Print( rootJSNObj ), strlen( cJSON_Print( rootJSNObj ) ) );
-	//WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP Get Clock Value Resp Mesg:%d,%s",strlen( cJSON_Print( rootJSNObj ) ), _mesg );
+	char* jsonStr = cJSON_Print( rootJSNObj ); // Allocate memory for JSON string
+	if( jsonStr != NULL )
+	{
+		strcpy( _mesg, jsonStr ); 	// Copy JSON string to _mesg
+		free( jsonStr ); 			// Free allocated memory
+	}
+	//WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP Get Clk Val Resp Mesg:%d,%s",strlen( cJSON_Print( rootJSNObj ) ), _mesg );
 	cJSON_Delete( rootJSNObj );
 	clearRegisteredMesg( SYNC_COMMAND_RESPONSE_MESG );
 }

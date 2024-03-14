@@ -27,6 +27,7 @@
 #include "rtc_wdt.h"
 
 #define FIRMWARE_VERSION_STR					"01.01.01.01"
+#define MONITOR_HEAP_MEMORY
 
 //Debug Enable/Disable MACRO
 #define APPLICATION_DEBUG_ENABLED
@@ -41,7 +42,7 @@
 #define JSN_PARSING_DEBUG_ENABLED
 
 #if defined( WIFI_DEBUG_ENABLED )
-	//#define NON_TCP_BLOCKING_DEBUG_ENABLED
+	#define NON_TCP_BLOCKING_DEBUG_ENABLED
 #endif //defined( WIFI_DEBUG_ENABLED )
 
 #endif //define APPLICATION_DEBUG_ENABLED
@@ -61,14 +62,6 @@
 #else
 	#define CONTINUITY_DBG_LOG( ... )
 	#define CONTINUITY_DBG_ERR( ... )
-#endif
-
-#if defined( COMMON_DEBUG_ENABLED )
-	#define COMMON_DEBUG_LOG		ESP_LOGI
-	#define COMMON_DEBUG_ERROR		ESP_LOGE
-#else
-	#define COMMON_DEBUG_LOG( ... )
-	#define COMMON_DEBUG_ERROR( ... )
 #endif
 
 #if defined( COMMON_DEBUG_ENABLED )

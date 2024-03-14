@@ -52,7 +52,7 @@ static void processContinuityIOOperating( void );
 //static void operateOutputForContinuityOperation( const uint8_t _outputNumber );
 static void scanNodeAssociatedIOs( const uint8_t _nodeArrayIndex, const uint8_t _outpuNumber );
 static uint8_t performScanningOnIO( uint8_t _IONumber );
-static void prepareScannedValueMessage( char* _mesg, uint8_t _index );
+static uint8_t prepareScannedValueMessage( char* _mesg, uint8_t _index );
 static void startContinuityTimer( TickType_t _lastWakeTime, uint32_t _timerPerioTickCount );
 static void stopContinuityTimer( );
 static bool hasValideProductConfigurationReceived( continuityProdConfiguration_t *prodCOnfig );
@@ -185,7 +185,7 @@ static void startContinuityTimer( TickType_t _lastWakeTime, uint32_t _timerPerio
 static void stopContinuityTimer( )
 {
 	continuityOnTimer = false;
-	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "Tmr Stpd" );
+	//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "Tmr Stpd" );
 }
 
 static void continuityTestHandelingTask( void* arg )
@@ -850,9 +850,8 @@ static uint64_t getScanStartClockInstant( uint8_t _nodeNumber )
 
 void prepareProcessErrorMesg( char* _mesg )
 {
-	cJSON *rootJSNObj = NULL;
+	cJSON *rootJSNObj = cJSON_CreateObject();
 
-	rootJSNObj = cJSON_CreateObject();
 	cJSON_AddNumberToObject( rootJSNObj, JSN_MESSAGE_CODE_STR, SCAN_ERROR_STATUS_CMD );
 	cJSON_AddNumberToObject( rootJSNObj, JSN_NODE_NUMBER_STR, NODE_NUMBER );
 
@@ -865,7 +864,13 @@ void prepareProcessErrorMesg( char* _mesg )
 		}
 	}
 
-	memcpy( _mesg, cJSON_Print( rootJSNObj ), strlen( cJSON_Print( rootJSNObj ) ) );
+	char* jsonStr = cJSON_Print( rootJSNObj ); // Allocate memory for JSON string
+	if( jsonStr != NULL )
+	{
+		strcpy( _mesg, jsonStr ); 	// Copy JSON string to _mesg
+		free( jsonStr ); 			// Free allocated memory
+	}
+
 	//WIFI_DBG_LOG( WIFI_DBG_TAG, "Scan Err:%d,%s",strlen( cJSON_Print( rootJSNObj ) ), _mesg );
 	cJSON_Delete( rootJSNObj );
 	clearRegisteredMesg( PROCESS_ERROR_MESG );
@@ -873,12 +878,12 @@ void prepareProcessErrorMesg( char* _mesg )
 
 void prepareOperateOutputStartEventMesg( char* _mesg )
 {
-	cJSON *rootJSNObj = NULL;
+	cJSON *rootJSNObj = cJSON_CreateObject();
 
-	rootJSNObj = cJSON_CreateObject();
 	cJSON_AddNumberToObject( rootJSNObj, JSN_MESSAGE_CODE_STR, OPERATE_OUTPUT_CMD );
 	cJSON_AddNumberToObject( rootJSNObj, JSN_NODE_NUMBER_STR, NODE_NUMBER );
 	cJSON_AddNumberToObject( rootJSNObj, JSN_IO_ASSOCIATED_WITH_NODE_STR, getNoOfIOsAssociatedWithNode( NODE_NUMBER ) );
+
 	if( operateOutputStatus.currentOutput == 1 )
 		cJSON_AddNumberToObject( rootJSNObj, JSN_OUTPUT_OPERATED_ON_STR, ( double )operateOutputStatus.outputOperatedOn );
 	else
@@ -886,7 +891,13 @@ void prepareOperateOutputStartEventMesg( char* _mesg )
 
 	cJSON_AddNumberToObject( rootJSNObj, JSN_NATIVE_CLOCK_WITH_OFFSET_STR, CURRENT_CLOCK_INSTANT_WITH_OFFSET );
 
-	memcpy( _mesg, cJSON_Print( rootJSNObj ), strlen( cJSON_Print( rootJSNObj ) ) );
+	char* jsonStr = cJSON_Print( rootJSNObj ); // Allocate memory for JSON string
+	if( jsonStr != NULL )
+	{
+		strcpy( _mesg, jsonStr ); 	// Copy JSON string to _mesg
+		free( jsonStr ); 			// Free allocated memory
+	}
+
 	//WIFI_DBG_LOG( WIFI_DBG_TAG, "Tx-Proc Start Time Msg:%d,%s",strlen( cJSON_Print( rootJSNObj ) ), _mesg );
 	cJSON_Delete( rootJSNObj );
 	clearRegisteredMesg( START_OPERATING_OUTPUT_MESG );
@@ -894,9 +905,8 @@ void prepareOperateOutputStartEventMesg( char* _mesg )
 
 void prepareOperateOutputDoneEventMesg( char* _mesg )
 {
-	cJSON *rootJSNObj = NULL;
+	cJSON *rootJSNObj = cJSON_CreateObject();
 
-	rootJSNObj = cJSON_CreateObject();
 	cJSON_AddNumberToObject( rootJSNObj, JSN_MESSAGE_CODE_STR, OPERATE_OUTPUT_DONE_CMD );
 	cJSON_AddNumberToObject( rootJSNObj, JSN_NODE_NUMBER_STR, NODE_NUMBER );
 	cJSON_AddNumberToObject( rootJSNObj, JSN_IO_ASSOCIATED_WITH_NODE_STR, getNoOfIOsAssociatedWithNode( NODE_NUMBER ) );
@@ -908,7 +918,12 @@ void prepareOperateOutputDoneEventMesg( char* _mesg )
 
 	cJSON_AddNumberToObject( rootJSNObj, JSN_NATIVE_CLOCK_WITH_OFFSET_STR, CURRENT_CLOCK_INSTANT_WITH_OFFSET );
 
-	memcpy( _mesg, cJSON_Print( rootJSNObj ), strlen( cJSON_Print( rootJSNObj ) ) );
+	char* jsonStr = cJSON_Print( rootJSNObj ); // Allocate memory for JSON string
+	if( jsonStr != NULL )
+	{
+		strcpy( _mesg, jsonStr ); 	// Copy JSON string to _mesg
+		free( jsonStr ); 			// Free allocated memory
+	}
 	//WIFI_DBG_LOG( WIFI_DBG_TAG, "UDP Tx-Process Start Time Mesg:%d,%s",strlen( cJSON_Print( rootJSNObj ) ), _mesg );
 	cJSON_Delete( rootJSNObj );
 	clearRegisteredMesg( OUTPUT_OPERATING_DONE_MESG );
@@ -945,12 +960,14 @@ void prepareScannedValueMesgForNextPossibleNode( char* _mesg )
 		CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "Sending For Node:%d, ConnCnt:%d", index,
 							  scanValueStatus[ index ].noOfConnectionDetectedForNode );
 
-		prepareScannedValueMessage( _mesg, index );
-		//scanValReportingSts.currentlySending = 0;
-		scanValReportingSts.scannedValueSentOn = CURRENT_CLOCK_INSTANT_WITH_OFFSET;
-		scanValueStatus[ index ].scannedValueSentToApp = 1;
-		scanValueStatus[ index ].noOfTimesScanValSentToAPp++;
-		clearRegisteredMesg( CONTINUITY_SCANNED_NON_ZERO_DETECTION_MESG );
+		if( prepareScannedValueMessage( _mesg, index ) == 1 )
+		{
+			//scanValReportingSts.currentlySending = 0;
+			scanValReportingSts.scannedValueSentOn = CURRENT_CLOCK_INSTANT_WITH_OFFSET;
+			scanValueStatus[ index ].scannedValueSentToApp = 1;
+			scanValueStatus[ index ].noOfTimesScanValSentToAPp++;
+			clearRegisteredMesg( CONTINUITY_SCANNED_NON_ZERO_DETECTION_MESG );
+		}
 	}
 }
 
@@ -992,8 +1009,12 @@ void prepareZeroDetectionMessage( char* _mesg )
 		cJSON_AddItemToObject( rootJSNObj, JSN_SCAN_STARTED_ON_STR, scanStartedOnJsnArray );
 		cJSON_AddItemToObject( rootJSNObj, JSN_SCAN_COMPLETED_ON_STR, scanCompletedOnJsnArray );
 
-		memcpy( _mesg, cJSON_Print( rootJSNObj ), strlen( cJSON_Print( rootJSNObj ) ) );
-		cJSON_Delete( rootJSNObj );
+		char* jsonStr = cJSON_Print( rootJSNObj ); // Allocate memory for JSON string
+		if( jsonStr != NULL )
+		{
+			strcpy( _mesg, jsonStr ); 	// Copy JSON string to _mesg
+			free( jsonStr ); 			// Free allocated memory
+		}
 	}
 	scanValReportingSts.zeroDetectionValueSent = SCANNED_VALUE_REPORTED_TO_APP;
 	clearRegisteredMesg( CONTINUITY_SCANNED_ZERO_DETECTION_MESG );
@@ -1003,8 +1024,10 @@ void prepareZeroDetectionMessage( char* _mesg )
 	if( noNoNodesHaveZeroDetection != continuityProdConfiguration.noOfNodesToBeScanned )
 	{
 		registerTxMessage( CONTINUITY_SCANNED_NON_ZERO_DETECTION_MESG, 20, P2P_MESG, TCP_MESSAGE );
-		CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "NON_ZERO_DETECTION_MESG Registered" );
+		CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "NON_ZERO_DETECTION_MESG Reg.." );
 	}
+
+	cJSON_Delete( rootJSNObj );
 }
 
 static void resetSelfDetectionForSimilarPins( )
@@ -1059,10 +1082,11 @@ static void resetSelfDetectionForSimilarPins( )
 			}
 		}
 	}
-	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "**SNNI:%d, TConn:%d", index, scanValueStatus[ index ].noOfConnectionDetectedForNode );
+	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "**SNNI:%d, TConn:%d", index,
+			            scanValueStatus[ index ].noOfConnectionDetectedForNode );
 }
 
-static void prepareScannedValueMessage( char _mesg[ ], uint8_t _index )
+static uint8_t prepareScannedValueMessage( char _mesg[ ], uint8_t _index )
 {
 	uint8_t inputNum = 0, totalAddedArrayIndex = 0; //totalAddedArrayIndex Added only For Debug Purpose
 	uint8_t selfNodeNumber = getNodeNumber();
@@ -1083,7 +1107,11 @@ static void prepareScannedValueMessage( char _mesg[ ], uint8_t _index )
 	cJSON *jsonArr = cJSON_CreateArray();
 
 	if( rootJSNObj == NULL || jsonArr == NULL )
-		return;
+	{
+		cJSON_Delete( rootJSNObj );
+		cJSON_Delete( jsonArr );
+		return 0;
+	}
 
 	cJSON_AddNumberToObject( rootJSNObj, JSN_MESSAGE_CODE_STR, SHARE_SCANNED_INPUT_VALUES_CMD );
 	cJSON_AddNumberToObject( rootJSNObj, JSN_NODE_NUMBER_STR,  getNodeNumber() );
@@ -1099,7 +1127,7 @@ static void prepareScannedValueMessage( char _mesg[ ], uint8_t _index )
 	if( scanValueStatus[ _index ].noOfTimesScanValSentToAPp == 0 )
 	{
 		//Set Bit Reset for bit operation
-		CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "IOAssoWithSelfNode:%d", IOAssoWithSelfNode );
+		//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "IOAssoWithSelfNode:%d", IOAssoWithSelfNode );
 		scanValueStatus[ _index ].scannedValueBitSetter = 0;
 		for( inputNum = 0; inputNum < IOAssoWithSelfNode; inputNum++ )
 		{
@@ -1113,7 +1141,7 @@ static void prepareScannedValueMessage( char _mesg[ ], uint8_t _index )
 					scanValueStatus[ _index ].scannedValueBitSetter |= ( 1 << ( inputNum - 32 ) );
 			}
 		}
-		CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "BitSet:%ld", scanValueStatus[ _index ].scannedValueBitSetter );
+		//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "BitSet:%ld", scanValueStatus[ _index ].scannedValueBitSetter );
 	}
 
 	cJSON_AddNumberToObject( rootJSNObj, JSN_SCANNED_VALUE_BITSETTER_STR, scanValueStatus[ _index ].scannedValueBitSetter );
@@ -1288,17 +1316,19 @@ static void prepareScannedValueMessage( char _mesg[ ], uint8_t _index )
 	}
 	cJSON_AddItemToObject( rootJSNObj, JSN_SCANNED_VALUE_STR, jsonArr );
 
-	if( strlen( cJSON_Print( rootJSNObj ) ) >= UDP_TX_MAX_MESAAGE_SIZE || _mesg[0] != '\0' )
-		CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "**ML:%d\n", strlen( cJSON_Print( rootJSNObj ) ) );
+	char* jsonStr = cJSON_Print( rootJSNObj ); // Allocate memory for JSON string
+	if( jsonStr != NULL )
+	{
+		strcpy( _mesg, jsonStr ); 	// Copy JSON string to _mesg
+		free( jsonStr ); 			// Free allocated memory
+	}
 
-	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "***ML:%d,%s\n", strlen( cJSON_Print( rootJSNObj ) ), cJSON_Print( rootJSNObj ) );
-	memcpy( _mesg, cJSON_Print( rootJSNObj ), strlen( cJSON_Print( rootJSNObj ) ) );
-
-	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "ML:%d, AI:%d\n", strlen( _mesg ), totalAddedArrayIndex );
+	CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "ML:%d, AI:%d, Heap:%ld\n", strlen( _mesg ),
+			            totalAddedArrayIndex, esp_get_free_heap_size() );
 	//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "Data:%s\n", _mesg );
-	//CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "Json Prepared Mesg:%d,%s",strlen( cJSON_Print( rootJSNObj ) ), _mesg );
 
 	cJSON_Delete( rootJSNObj );
+	return 1;
 }
 
 void processScanValueReceivedAckResponse( cJSON *_scanForNodeJsnArrObj, cJSON *_scanValRecAckJsnArrObj )
@@ -1320,18 +1350,20 @@ void processScanValueReceivedAckResponse( cJSON *_scanForNodeJsnArrObj, cJSON *_
 				if( ackStatus->valueint == 1 )
 				{
 					scanValueStatus[ ite ].scanedValueReceivedByApp = 1;
-					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "ACK Rcvd Fr %d", scanValueStatus[ nodeNum ].scanPerformedFor );
+					CONTINUITY_DBG_LOG( CONTINUITY_DBG_TAG, "ACK Rcvd Fr %d",
+							            scanValueStatus[ nodeNum ].scanPerformedFor );
 				}
 				else
 				{
-					CONTINUITY_DBG_ERR( CONTINUITY_DBG_TAG, "Neg ACK Received For %d", scanValueStatus[ nodeNum ].scanPerformedFor );
+					CONTINUITY_DBG_ERR( CONTINUITY_DBG_TAG, "Neg ACK Rcvd For %d",
+							            scanValueStatus[ nodeNum ].scanPerformedFor );
 				}
 			}
 		}
 
 		if( validNode == false )
 		{
-			CONTINUITY_DBG_ERR( CONTINUITY_DBG_TAG, "Ack received for invalid node" );
+			CONTINUITY_DBG_ERR( CONTINUITY_DBG_TAG, "Ack Rcvd for invalid node" );
 		}
 	}
 }
@@ -1379,7 +1411,7 @@ void calculateExpectedProcessTime( uint8_t totalNodes, uint8_t *_uintArray )
 	}
 	else
 	{
-		processExpectedStartTime = CURRENT_CLOCK_INSTANT_WITH_OFFSET + ( totalNodes * 20 ) + 500;
+		processExpectedStartTime = CURRENT_CLOCK_INSTANT_WITH_OFFSET + ( totalNodes * 20 ) + 800;
 		//20 ms Delay of sending TCP data from Application to all nodes
 		//500 ms Transport delay
 	}

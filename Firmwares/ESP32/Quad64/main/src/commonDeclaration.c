@@ -400,6 +400,7 @@ uint32_t clockOffset = 0;
 bool clockOffsettingDone = false;
 bool clockValueLocked = false;
 uint64_t lockedClockValue = 0;
+/*
 void prepareNativeClockValueResponseMessage( char *_mesg )
 {
 	uint64_t nativeClock = CURRENT_CLOCK_INSTANT_WITH_OFFSET;
@@ -417,7 +418,7 @@ void prepareNativeClockValueResponseMessage( char *_mesg )
 	ESP_LOGI( CLK_SYNK_DBG_TAG, "P2P Mesg:%d,%s",strlen( cJSON_Print( rootJSNObj ) ), _mesg );
 	cJSON_Delete( rootJSNObj );
 	clearRegisteredMesg( NATIVE_CLOCK_VALUE_MESG );
-}
+}*/
 
 void setClockOffset( uint32_t _offsetValue )
 {
